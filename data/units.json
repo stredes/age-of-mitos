@@ -1,0 +1,239 @@
+{
+  "villager": {
+    "display_name": "Aldeano",
+    "hp": 80,
+    "attack": 5,
+    "speed": 80,
+    "range": 1,
+    "armor": 0,
+    "cost": {
+      "food": 50
+    },
+    "train_time": 15,
+    "pop_cost": 1,
+    "attack_speed": 1.5,
+    "projectile_type": "none",
+    "bonus_vs": {},
+    "gather_rate": {
+      "wood": 1.0,
+      "stone": 0.8,
+      "food": 1.2,
+      "gold": 0.6
+    },
+    "carry_capacity": 10,
+    "line_of_sight": 5,
+    "states": ["idle", "move", "attack", "harvest", "build", "carry", "dead"],
+    "allowed_buildings": ["town_center"],
+    "unit_category": "civil",
+    "description": "Unidad versátil que recolecta recursos y construye edificios."
+  },
+  "lumberjack": {
+    "display_name": "Leñador",
+    "hp": 75,
+    "attack": 4,
+    "speed": 80,
+    "range": 1,
+    "armor": 0,
+    "cost": {
+      "food": 40
+    },
+    "train_time": 12,
+    "pop_cost": 1,
+    "attack_speed": 1.5,
+    "projectile_type": "none",
+    "bonus_vs": {},
+    "gather_rate": {
+      "wood": 1.5,
+      "stone": 0.5,
+      "food": 0.8,
+      "gold": 0.4
+    },
+    "carry_capacity": 12,
+    "line_of_sight": 5,
+    "states": ["idle", "move", "attack", "harvest", "carry", "dead"],
+    "allowed_buildings": ["town_center"],
+    "unit_category": "civil",
+    "description": "Especialista en tala de árboles. Recoge madera más rápido."
+  },
+  "miner": {
+    "display_name": "Minero",
+    "hp": 80,
+    "attack": 5,
+    "speed": 75,
+    "range": 1,
+    "armor": 0,
+    "cost": {
+      "food": 45
+    },
+    "train_time": 13,
+    "pop_cost": 1,
+    "attack_speed": 1.5,
+    "projectile_type": "none",
+    "bonus_vs": {},
+    "gather_rate": {
+      "wood": 0.6,
+      "stone": 1.4,
+      "food": 0.7,
+      "gold": 1.2
+    },
+    "carry_capacity": 8,
+    "line_of_sight": 5,
+    "states": ["idle", "move", "attack", "harvest", "carry", "dead"],
+    "allowed_buildings": ["town_center"],
+    "unit_category": "civil",
+    "description": "Especialista en minería. Extrae piedra y oro más rápido."
+  },
+  "builder": {
+    "display_name": "Constructor",
+    "hp": 70,
+    "attack": 3,
+    "speed": 85,
+    "range": 1,
+    "armor": 0,
+    "cost": {
+      "food": 35,
+      "wood": 10
+    },
+    "train_time": 10,
+    "pop_cost": 1,
+    "attack_speed": 1.8,
+    "projectile_type": "none",
+    "bonus_vs": {},
+    "gather_rate": {
+      "wood": 0.8,
+      "stone": 0.6,
+      "food": 0.8,
+      "gold": 0.4
+    },
+    "carry_capacity": 6,
+    "line_of_sight": 6,
+    "states": ["idle", "move", "attack", "harvest", "build", "carry", "dead"],
+    "allowed_buildings": ["town_center"],
+    "unit_category": "civil",
+    "description": "Construye y repara edificios más rápido. No puede combatir."
+  },
+  "swordsman": {
+    "display_name": "Espadachín",
+    "hp": 120,
+    "attack": 12,
+    "speed": 70,
+    "range": 1,
+    "armor": 3,
+    "cost": {
+      "food": 60,
+      "gold": 20
+    },
+    "train_time": 20,
+    "pop_cost": 1,
+    "attack_speed": 1.2,
+    "projectile_type": "none",
+    "bonus_vs": {},
+    "gather_rate": null,
+    "carry_capacity": 0,
+    "line_of_sight": 6,
+    "states": ["idle", "move", "attack", "dead"],
+    "allowed_buildings": ["barracks"],
+    "unit_category": "infantry",
+    "description": "Guerrero cuerpo a cuerpo equilibrado. Buena defensa."
+  },
+  "spearman": {
+    "display_name": "Lancero",
+    "hp": 100,
+    "attack": 10,
+    "speed": 75,
+    "range": 1.5,
+    "armor": 2,
+    "cost": {
+      "food": 50,
+      "wood": 20
+    },
+    "train_time": 18,
+    "pop_cost": 1,
+    "attack_speed": 1.3,
+    "projectile_type": "none",
+    "bonus_vs": {
+      "cavalry": 2.0
+    },
+    "gather_rate": null,
+    "carry_capacity": 0,
+    "line_of_sight": 6,
+    "states": ["idle", "move", "attack", "dead"],
+    "allowed_buildings": ["barracks"],
+    "unit_category": "infantry",
+    "description": "Especialista contra caballería. Daño x2 contra jinetes."
+  },
+  "archer": {
+    "display_name": "Arquero",
+    "hp": 70,
+    "attack": 9,
+    "speed": 65,
+    "range": 5,
+    "armor": 1,
+    "cost": {
+      "wood": 50,
+      "gold": 20
+    },
+    "train_time": 22,
+    "pop_cost": 1,
+    "attack_speed": 1.8,
+    "projectile_type": "arrow",
+    "bonus_vs": {},
+    "gather_rate": null,
+    "carry_capacity": 0,
+    "line_of_sight": 7,
+    "states": ["idle", "move", "attack", "dead"],
+    "allowed_buildings": ["archery_range"],
+    "unit_category": "ranged",
+    "description": "Unidad a distancia. Largo alcance pero frágil."
+  },
+  "cavalry": {
+    "display_name": "Caballería",
+    "hp": 150,
+    "attack": 15,
+    "speed": 120,
+    "range": 1,
+    "armor": 5,
+    "cost": {
+      "food": 80,
+      "gold": 40
+    },
+    "train_time": 30,
+    "pop_cost": 2,
+    "attack_speed": 1.4,
+    "projectile_type": "none",
+    "bonus_vs": {
+      "archer": 1.5
+    },
+    "gather_rate": null,
+    "carry_capacity": 0,
+    "line_of_sight": 8,
+    "states": ["idle", "move", "attack", "dead"],
+    "allowed_buildings": ["stable"],
+    "unit_category": "cavalry",
+    "description": "Unidad rápida y fuerte. Débil contra lanceros."
+  },
+  "catapult": {
+    "display_name": "Catapulta",
+    "hp": 100,
+    "attack": 40,
+    "speed": 40,
+    "range": 8,
+    "armor": 0,
+    "cost": {
+      "wood": 100,
+      "gold": 50
+    },
+    "train_time": 45,
+    "pop_cost": 3,
+    "attack_speed": 3.0,
+    "projectile_type": "rock",
+    "bonus_vs": {},
+    "gather_rate": null,
+    "carry_capacity": 0,
+    "line_of_sight": 8,
+    "states": ["idle", "move", "attack", "dead"],
+    "allowed_buildings": ["siege_workshop", "castle"],
+    "unit_category": "siege",
+    "description": "Asedio de largo alcance. Destruye edificios rápidamente."
+  }
+}

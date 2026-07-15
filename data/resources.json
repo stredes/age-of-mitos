@@ -1,0 +1,34 @@
+{
+  "wood": {
+    "display_name": "Madera",
+    "color": "#8B4513",
+    "gatherable": true,
+    "regrow_rate": 0.0,
+    "max_amount": 100,
+    "description": "Recurso obtenido de árboles. Usado para construcciones y unidades."
+  },
+  "stone": {
+    "display_name": "Piedra",
+    "color": "#808080",
+    "gatherable": true,
+    "regrow_rate": 0.0,
+    "max_amount": 150,
+    "description": "Recurso obtenido de minerales. Usado para defensas."
+  },
+  "food": {
+    "display_name": "Comida",
+    "color": "#228B22",
+    "gatherable": true,
+    "regrow_rate": 0.1,
+    "max_amount": 80,
+    "description": "Recurso obtenido de arbustos y animales. Usado para unidades."
+  },
+  "gold": {
+    "display_name": "Oro",
+    "color": "#FFD700",
+    "gatherable": true,
+    "regrow_rate": 0.0,
+    "max_amount": 120,
+    "description": "Recurso raro. Usado para unidades de élite y tecnologías."
+  }
+}

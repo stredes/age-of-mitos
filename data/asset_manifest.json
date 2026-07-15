@@ -1,0 +1,135 @@
+{
+  "style_version": "age_of_mitos_pixel_rts_v1",
+  "source_prompt": "docs/asset_prompt_master.md",
+  "rules": {
+    "format": "transparent_png",
+    "perspective": "top_down_45_degree_rts",
+    "lighting": "upper_left_soft",
+    "palette": "ancient_mediterranean",
+    "filtering": "nearest"
+  },
+  "batches": [
+    {
+      "id": "core_units_layered",
+      "priority": 1,
+      "assets": [
+        {
+          "id": "unit_villager_layered",
+          "category": "units",
+          "canvas": "48x48",
+          "path": "assets/sprites/units/layered/unit_villager_layered.png",
+          "description": "Generate a villager worker for an ancient Mediterranean RTS, separated visual parts implied for head, body, arms, legs, simple tool belt, idle pose, transparent background."
+        },
+        {
+          "id": "unit_spearman_layered",
+          "category": "units",
+          "canvas": "48x48",
+          "path": "assets/sprites/units/layered/unit_spearman_layered.png",
+          "description": "Generate a bronze age spearman with spear, simple shield, readable RTS silhouette, animation-ready layered design, transparent background."
+        },
+        {
+          "id": "unit_archer_layered",
+          "category": "units",
+          "canvas": "48x48",
+          "path": "assets/sprites/units/layered/unit_archer_layered.png",
+          "description": "Generate an ancient archer with bow and quiver, readable top-down RTS silhouette, animation-ready layered design, transparent background."
+        }
+      ]
+    },
+    {
+      "id": "core_buildings",
+      "priority": 1,
+      "assets": [
+        {
+          "id": "building_town_center",
+          "category": "buildings",
+          "canvas": "64x64",
+          "path": "assets/sprites/buildings/building_town_center.png",
+          "description": "Generate an ancient Greek inspired town center for a mobile RTS, top-down 45 degree perspective, warm stone, bronze roof details, transparent background."
+        },
+        {
+          "id": "building_house",
+          "category": "buildings",
+          "canvas": "64x64",
+          "path": "assets/sprites/buildings/building_house.png",
+          "description": "Generate a small ancient Mediterranean house for an RTS, warm stone walls, clay roof, readable at distance, transparent background."
+        },
+        {
+          "id": "building_barracks",
+          "category": "buildings",
+          "canvas": "64x64",
+          "path": "assets/sprites/buildings/building_barracks.png",
+          "description": "Generate an ancient barracks for an RTS, stone and wood construction, small flags, 45 degree top-down, transparent background."
+        }
+      ]
+    },
+    {
+      "id": "core_resources",
+      "priority": 1,
+      "assets": [
+        {
+          "id": "resource_tree",
+          "category": "resources",
+          "canvas": "32x32",
+          "path": "assets/sprites/resources/resource_tree.png",
+          "description": "Generate an olive tree resource for an ancient Mediterranean RTS, readable 32x32 pixel art, transparent background."
+        },
+        {
+          "id": "resource_stone",
+          "category": "resources",
+          "canvas": "32x32",
+          "path": "assets/sprites/resources/resource_stone.png",
+          "description": "Generate a stone deposit resource for an RTS, grey warm rocks, readable 32x32 pixel art, transparent background."
+        },
+        {
+          "id": "resource_gold_ore",
+          "category": "resources",
+          "canvas": "32x32",
+          "path": "assets/sprites/resources/resource_gold_ore.png",
+          "description": "Generate a gold ore deposit resource for an RTS, warm natural gold highlights, readable 32x32 pixel art, transparent background."
+        },
+        {
+          "id": "resource_berry_bush",
+          "category": "resources",
+          "canvas": "32x32",
+          "path": "assets/sprites/resources/resource_berry_bush.png",
+          "description": "Generate a berry bush food resource for an ancient RTS, olive green leaves and red berries, readable 32x32 pixel art, transparent background."
+        }
+      ]
+    },
+    {
+      "id": "core_ui_icons",
+      "priority": 2,
+      "assets": [
+        {
+          "id": "ui_icon_wood",
+          "category": "ui",
+          "canvas": "32x32",
+          "path": "assets/sprites/ui/ui_icon_wood.png",
+          "description": "Generate a wood resource icon for a mobile RTS UI, pixel art, transparent background."
+        },
+        {
+          "id": "ui_icon_food",
+          "category": "ui",
+          "canvas": "32x32",
+          "path": "assets/sprites/ui/ui_icon_food.png",
+          "description": "Generate a food resource icon for a mobile RTS UI, pixel art, transparent background."
+        },
+        {
+          "id": "ui_icon_stone",
+          "category": "ui",
+          "canvas": "32x32",
+          "path": "assets/sprites/ui/ui_icon_stone.png",
+          "description": "Generate a stone resource icon for a mobile RTS UI, pixel art, transparent background."
+        },
+        {
+          "id": "ui_icon_gold",
+          "category": "ui",
+          "canvas": "32x32",
+          "path": "assets/sprites/ui/ui_icon_gold.png",
+          "description": "Generate a gold resource icon for a mobile RTS UI, pixel art, transparent background."
+        }
+      ]
+    }
+  ]
+}

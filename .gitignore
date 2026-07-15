@@ -1,0 +1,44 @@
+# Godot cache and generated imports
+.godot/
+.import/
+*.translation
+
+# Godot temporary/runtime files
+*.tmp
+*.temp
+*.log
+*.bak
+*.backup
+*.autosave
+*.uid.tmp
+
+# Exported builds and Android packages
+build/
+*.apk
+*.aab
+*.idsig
+
+# Local toolchains and downloaded editors/templates
+tools/
+
+# Android/Java local state
+android/build/
+android/.gradle/
+android/local.properties
+*.keystore
+*.jks
+
+# OS/editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Large generated media/source exports
+*.psd
+*.aseprite
+*.kra
+*.blend1
+
+# Keep source assets, scripts, scenes, data, docs, and project config tracked.

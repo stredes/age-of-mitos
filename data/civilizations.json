@@ -1,0 +1,12 @@
+{
+  "kingdom": {
+    "display_name": "Reino de Mitos",
+    "bonus": "+10% velocidad de recolección de madera",
+    "unique_unit": "catapult",
+    "unique_tech": "fortified_walls",
+    "bonus_effects": {
+      "wood_gather_rate": 1.1
+    },
+    "description": "Un reino próspero con expertos leñadores y maquinaria de asedio."
+  }
+}
