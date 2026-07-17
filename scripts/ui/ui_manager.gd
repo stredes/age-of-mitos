@@ -17,6 +17,7 @@ var quick_action_bar: HBoxContainer = null
 var unit_portrait: PanelContainer = null
 var stance_button: Button = null
 var error_display: Node = null
+var victory_defeat_screen: Node = null
 var _pause_menu: Control = null
 var _open_menu: String = ""
 
@@ -41,6 +42,7 @@ func _find_ui_nodes() -> void:
 	unit_portrait = _find_node_recursive("/root/GameWorld/UILayer", "UnitPortrait") as PanelContainer
 	stance_button = _find_node_recursive("/root/GameWorld/UILayer", "StanceButton") as Button
 	error_display = _find_node_recursive("/root/GameWorld", "ErrorDisplay")
+	victory_defeat_screen = _find_node_recursive("/root/GameWorld", "VictoryDefeatScreen")
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
@@ -124,6 +126,11 @@ func close_train_menu() -> void:
 
 
 func show_game_over(winner_id: int) -> void:
+	if victory_defeat_screen != null and victory_defeat_screen.has_method("show_victory"):
+		victory_defeat_screen.show_victory(winner_id)
+		return
+
+	# Fallback: inline basic game over.
 	if _game_over_panel and is_instance_valid(_game_over_panel):
 		_game_over_panel.queue_free()
 
