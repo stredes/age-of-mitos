@@ -14,6 +14,19 @@ var selection_box_end: Vector2 = Vector2.ZERO
 var is_box_selecting: bool = false
 var max_selection: int = 50
 
+## Control groups: index 0-8 maps to keys 1-9.
+## Each group stores an array of unit IDs.
+var control_groups: Array[Array] = [[], [], [], [], [], [], [], [], []]
+
+## Timestamp (seconds) of the last click, used for double-click detection.
+var _last_click_time: float = 0.0
+## World position of the last click, for double-click proximity check.
+var _last_click_pos: Vector2 = Vector2.ZERO
+## Maximum time gap (seconds) between clicks to count as double-click.
+var _double_click_max_interval: float = 0.35
+## Maximum distance (world units) between clicks to count as double-click.
+var _double_click_max_distance: float = 40.0
+
 var _local_player_id: int = -1
 
 # =============================================================================
@@ -154,6 +167,44 @@ func has_selection() -> bool:
 	return selected_units.size() > 0 or selected_building != -1
 
 # =============================================================================
+# Control Groups
+# =============================================================================
+
+## Assign the current selection to a control group (0-8 → keys 1-9).
+func assign_control_group(group_index: int) -> void:
+	if group_index < 0 or group_index > 8:
+		return
+	control_groups[group_index] = selected_units.duplicate()
+
+
+## Recall a control group — select all units stored in it.
+func recall_control_group(group_index: int) -> void:
+	if group_index < 0 or group_index > 8:
+		return
+	var group_units: Array = control_groups[group_index]
+	if group_units.is_empty():
+		return
+
+	deselect_all()
+	var added: Array[int] = []
+	for id_variant: Variant in group_units:
+		var uid: int = id_variant if id_variant is int else int(id_variant)
+		if uid in added:
+			continue
+		if added.size() >= max_selection:
+			break
+		if _is_own_unit(uid):
+			added.append(uid)
+
+	for uid: int in added:
+		selected_units.append(uid)
+		_set_unit_selected_visual(uid, true)
+		EventBus.unit_selected.emit(uid, _get_local_player_id())
+
+	if added.size() > 0:
+		_emit_selection_changed()
+
+# =============================================================================
 # Box Selection
 # =============================================================================
 
@@ -235,15 +286,123 @@ func handle_click_at(world_pos: Vector2, shift_held: bool) -> void:
 	var clicked_unit: int = _find_unit_at_position(world_pos)
 	if clicked_unit != -1:
 		select_unit(clicked_unit, shift_held)
+		_check_double_click(clicked_unit)
 		return
 
 	var clicked_building: int = _find_building_at_position(world_pos)
 	if clicked_building != -1:
 		select_building(clicked_building)
+		_last_click_time = Time.get_ticks_msec() / 1000.0
+		_last_click_pos = world_pos
 		return
 
 	if not shift_held:
 		deselect_all()
+
+	_last_click_time = Time.get_ticks_msec() / 1000.0
+	_last_click_pos = world_pos
+
+
+## Detect double-click and select all visible units of the same type.
+func _check_double_click(unit_id: int) -> void:
+	var now: float = Time.get_ticks_msec() / 1000.0
+
+	# Not a double-click if too slow or too far apart.
+	var click_pos: Vector2 = _get_unit_position(unit_id)
+	if now - _last_click_time > _double_click_max_interval:
+		_last_click_time = now
+		_last_click_pos = click_pos
+		return
+	if _last_click_pos.distance_to(click_pos) > _double_click_max_distance:
+		_last_click_time = now
+		_last_click_pos = click_pos
+		return
+
+	# Double-click detected — select all own visible units of the same type.
+	var target_type: String = _get_unit_type(unit_id)
+	if target_type.is_empty():
+		_last_click_time = now
+		_last_click_pos = click_pos
+		return
+
+	select_all_of_type(target_type)
+	_last_click_time = 0.0
+	_last_click_pos = click_pos
+
+
+## Select all visible own units of the given type.
+func select_all_of_type(unit_type: String) -> void:
+	deselect_all()
+	var found: Array[int] = []
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+
+	for unit_node: Node in all_units:
+		if found.size() >= max_selection:
+			break
+		if not unit_node is Node2D:
+			continue
+		if not _is_own_unit_node(unit_node):
+			continue
+		var utype: String = _get_unit_type_from_node(unit_node)
+		if utype == unit_type:
+			var uid: int = _get_unit_id_from_node(unit_node)
+			if uid != -1:
+				found.append(uid)
+
+	for uid: int in found:
+		selected_units.append(uid)
+		_set_unit_selected_visual(uid, true)
+		EventBus.unit_selected.emit(uid, _get_local_player_id())
+
+	if found.size() > 0:
+		_emit_selection_changed()
+
+
+## Select all idle villager units owned by the local player.
+func select_idle_villagers() -> void:
+	deselect_all()
+	var found: Array[int] = []
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+
+	for unit_node: Node in all_units:
+		if found.size() >= max_selection:
+			break
+		if not unit_node is Node2D:
+			continue
+		if not _is_own_unit_node(unit_node):
+			continue
+		var utype: String = _get_unit_type_from_node(unit_node)
+		if utype != "villager":
+			continue
+		# Check if the unit's state machine is in IdleState.
+		var state_machine: Node = unit_node.get_node_or_null("UnitStateMachine")
+		if state_machine != null:
+			var current_state: String = ""
+			if state_machine.has_method("get"):
+				var state_node: Node = state_machine.get("current_state")
+				if state_node != null and state_node is Node:
+					current_state = state_node.name
+			if current_state != "IdleState":
+				continue
+		else:
+			# If no state machine, check if the unit has a state property.
+			var unit_state: String = ""
+			if unit_node.has_method("get") and unit_node.get("current_state") != null:
+				unit_state = str(unit_node.get("current_state"))
+			if not unit_state.is_empty() and unit_state != "idle":
+				continue
+
+		var uid: int = _get_unit_id_from_node(unit_node)
+		if uid != -1:
+			found.append(uid)
+
+	for uid: int in found:
+		selected_units.append(uid)
+		_set_unit_selected_visual(uid, true)
+		EventBus.unit_selected.emit(uid, _get_local_player_id())
+
+	if found.size() > 0:
+		_emit_selection_changed()
 
 # =============================================================================
 # Entity Detection
@@ -369,3 +528,34 @@ func _on_selection_ended(start_pos: Vector2, end_pos: Vector2, _selected_ids: Ar
 		var found: Array[int] = select_all_in_rect(rect)
 		if found.is_empty():
 			deselect_all()
+
+# =============================================================================
+# Helper Methods
+# =============================================================================
+
+func _get_unit_position(unit_id: int) -> Vector2:
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	for unit_node: Node in all_units:
+		if unit_node is Node2D and unit_node.has_method("get") and unit_node.get("unit_id") == unit_id:
+			return (unit_node as Node2D).global_position
+	return Vector2.ZERO
+
+
+func _get_unit_type(unit_id: int) -> String:
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	for unit_node: Node in all_units:
+		if unit_node.has_method("get") and unit_node.get("unit_id") == unit_id:
+			return _get_unit_type_from_node(unit_node)
+	return ""
+
+
+func _get_unit_type_from_node(unit_node: Node) -> String:
+	if unit_node.has_method("get") and unit_node.get("unit_type") != null:
+		return str(unit_node.get("unit_type"))
+	return ""
+
+
+func _get_unit_id_from_node(unit_node: Node) -> int:
+	if unit_node.has_method("get") and unit_node.get("unit_id") != null:
+		return int(unit_node.get("unit_id"))
+	return -1

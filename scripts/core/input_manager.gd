@@ -77,6 +77,9 @@ var selected_unit_ids: Array[int] = []
 ## IDs of buildings currently selected by the player.
 var selected_building_ids: Array[int] = []
 
+## Destination marker node for visual feedback on move commands.
+var _destination_marker: Node = null
+
 # =============================================================================
 # Lifecycle
 # =============================================================================
@@ -231,6 +234,9 @@ func _handle_key(event: InputEventKey) -> void:
 			EventBus.button_pressed.emit("train_archer", GameManager.get_local_player_id())
 		KEY_C:
 			EventBus.button_pressed.emit("train_cavalry", GameManager.get_local_player_id())
+
+	# Control groups: 1-9 (with or without Ctrl).
+	_handle_control_group_key(event)
 
 # =============================================================================
 # Release Processing
@@ -624,3 +630,38 @@ func get_selection_rect_world() -> Rect2:
 		Vector2(minf(start_world.x, end_world.x), minf(start_world.y, end_world.y)),
 		Vector2(absf(end_world.x - start_world.x), absf(end_world.y - start_world.y))
 	)
+
+# =============================================================================
+# Control Groups
+# =============================================================================
+
+func _handle_control_group_key(event: InputEventKey) -> void:
+	var group_index: int = -1
+	match event.keycode:
+		KEY_1: group_index = 0
+		KEY_2: group_index = 1
+		KEY_3: group_index = 2
+		KEY_4: group_index = 3
+		KEY_5: group_index = 4
+		KEY_6: group_index = 5
+		KEY_7: group_index = 6
+		KEY_8: group_index = 7
+		KEY_9: group_index = 8
+
+	if group_index == -1:
+		return
+
+	var selection_manager: Node = _find_selection_manager()
+	if selection_manager == null:
+		return
+
+	var ctrl_held: bool = Input.is_key_pressed(KEY_CTRL)
+	if ctrl_held:
+		# Assign current selection to this group.
+		if selection_manager.has_method("assign_control_group"):
+			selection_manager.assign_control_group(group_index)
+	else:
+		# Recall this group.
+		if selection_manager.has_method("recall_control_group"):
+			selection_manager.recall_control_group(group_index)
+			_sync_selection_from_manager(selection_manager)

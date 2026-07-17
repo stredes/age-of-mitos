@@ -470,6 +470,7 @@ func _add_unit_commands(unit_data: Dictionary) -> void:
 		add_command_button("Stone", "🪨", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_stone"))
 		add_command_button("Gold", "🪙", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_gold"))
 		add_command_button("Build", "🔨", func() -> void: EventBus.button_pressed.emit("build_menu", GameManager.local_player_id))
+		add_command_button("Idle Villagers", "👷", func() -> void: _select_idle_villagers())
 
 
 func _add_group_commands() -> void:
@@ -491,6 +492,14 @@ func _train_unit(building_node: Node, unit_type: String) -> void:
 	if building_node == null:
 		return
 	EventBus.button_pressed.emit("train_" + unit_type, GameManager.local_player_id)
+
+
+func _select_idle_villagers() -> void:
+	var selection_manager: Node = get_node_or_null("/root/GameWorld/SelectionManager")
+	if selection_manager == null:
+		selection_manager = get_node_or_null("/root/GameWorld/World/SelectionManager")
+	if selection_manager != null and selection_manager.has_method("select_idle_villagers"):
+		selection_manager.select_idle_villagers()
 
 
 func _add_stat_label(text: String) -> void:
