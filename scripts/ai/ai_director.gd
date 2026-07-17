@@ -1,8 +1,18 @@
+## AI Director with distance-based throttling and cached queries.
+##
+## Manages AI decision-making with performance optimizations:
+## - Caches unit/building queries to avoid per-frame allocations
+## - Throttles updates based on distance to player (near = faster, far = slower)
+## - Pre-calculates threat assessments
 extends Node
 
 signal decision_made(priority: String, target: Vector2)
 
 enum Priority { ECONOMY, MILITARY, EXPANSION, DEFENSE }
+
+# =============================================================================
+# Configuration
+# =============================================================================
 
 var ai_player_id: int = -1
 var difficulty: int = 1
@@ -10,9 +20,22 @@ var update_interval: float = 3.0
 var update_timer: float = 0.0
 var personality: String = "balanced"
 
+## Distance-based throttle multipliers.
+@export var throttle_near: float = 0.5  # < 1000px: update 2x faster
+@export var throttle_far: float = 2.0   # > 3000px: update 2x slower
+@export var throttle_near_dist: float = 1000.0
+@export var throttle_far_dist: float = 3000.0
+
+## Cache lifetime in seconds for unit/building queries.
+@export var cache_lifetime: float = 1.0
+
 var ai_economy: Node = null
 var ai_military: Node = null
 var ai_builder: Node = null
+
+# =============================================================================
+# Personality Weights
+# =============================================================================
 
 var _personality_weights: Dictionary = {
 	"aggressive": {
@@ -53,8 +76,43 @@ var _personality_weights: Dictionary = {
 	},
 }
 
+# =============================================================================
+# Cached State
+# =============================================================================
+
 var _decision_history: Array[String] = []
 const HISTORY_SIZE: int = 5
+
+## Cached unit list: { units: [], timestamp: float }
+var _unit_cache: Dictionary = {"units": [], "timestamp": -1.0}
+
+## Cached building list: { buildings: [], timestamp: float }
+var _building_cache: Dictionary = {"buildings": [], "timestamp": -1.0}
+
+## Cached own base position.
+var _own_base_position: Vector2 = Vector2.ZERO
+var _own_base_valid: bool = false
+
+## Cached military/economic strength.
+var _cached_military_strength: int = 0
+var _cached_economic_strength: int = 0
+var _strength_cache_time: float = -1.0
+
+## Player position for distance-based throttling.
+var _player_base_position: Vector2 = Vector2.ZERO
+var _player_base_valid: bool = false
+
+# =============================================================================
+# Lifecycle
+# =============================================================================
+
+func _ready() -> void:
+	if not EventBus.game_started.is_connected(_on_game_started):
+		EventBus.game_started.connect(_on_game_started)
+
+
+func _on_game_started(_player_id: int) -> void:
+	_invalidate_caches()
 
 
 func initialize(player_id: int, diff: int) -> void:
@@ -74,6 +132,11 @@ func initialize(player_id: int, diff: int) -> void:
 
 	update_timer = randf_range(0.0, update_interval)
 
+	_create_sub_nodes()
+	_find_player_base()
+
+
+func _create_sub_nodes() -> void:
 	ai_economy = Node.new()
 	ai_economy.set_script(load("res://scripts/ai/ai_economy.gd"))
 	ai_economy.name = "AIEconomy_%d" % ai_player_id
@@ -99,11 +162,87 @@ func _process(delta: float) -> void:
 	if GameManager.is_paused() or GameManager.is_game_over():
 		return
 
+	# Distance-based throttle.
+	var throttle: float = _get_distance_throttle()
+	var effective_interval: float = update_interval * throttle
+
 	update_timer -= delta
 	if update_timer <= 0.0:
-		update_timer = update_interval
+		update_timer = effective_interval
 		make_decisions()
 
+# =============================================================================
+# Distance-Based Throttling
+# =============================================================================
+
+func _get_distance_throttle() -> float:
+	if not _player_base_valid:
+		_find_player_base()
+
+	if not _player_base_valid or not _own_base_valid:
+		return 1.0  # Default throttle.
+
+	var dist: float = _own_base_position.distance_to(_player_base_position)
+
+	if dist < throttle_near_dist:
+		return throttle_near
+	elif dist > throttle_far_dist:
+		return throttle_far
+	else:
+		# Interpolate between near and far.
+		var t: float = (dist - throttle_near_dist) / (throttle_far_dist - throttle_near_dist)
+		return lerpf(throttle_near, throttle_far, t)
+
+
+func _find_player_base() -> void:
+	var all_buildings: Array[Node] = _get_cached_buildings()
+	for bld: Node in all_buildings:
+		if not (bld is Node2D):
+			continue
+		var pid: int = bld.get("player_id") if bld.get("player_id") != null else -1
+		if pid != ai_player_id:
+			var btype: String = bld.get("building_type") if bld.get("building_type") != null else ""
+			if btype == "town_center":
+				_player_base_position = (bld as Node2D).global_position
+				_player_base_valid = true
+				return
+
+	_player_base_valid = false
+
+# =============================================================================
+# Cached Queries
+# =============================================================================
+
+func _get_cached_units() -> Array[Node]:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - _unit_cache["timestamp"] < cache_lifetime:
+		return _unit_cache["units"]
+
+	_unit_cache["units"] = get_tree().get_nodes_in_group("units")
+	_unit_cache["timestamp"] = now
+	return _unit_cache["units"]
+
+
+func _get_cached_buildings() -> Array[Node]:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - _building_cache["timestamp"] < cache_lifetime:
+		return _building_cache["buildings"]
+
+	_building_cache["buildings"] = get_tree().get_nodes_in_group("buildings")
+	_building_cache["timestamp"] = now
+	return _building_cache["buildings"]
+
+
+func _invalidate_caches() -> void:
+	_unit_cache = {"units": [], "timestamp": -1.0}
+	_building_cache = {"buildings": [], "timestamp": -1.0}
+	_strength_cache_time = -1.0
+	_own_base_valid = false
+	_player_base_valid = false
+
+# =============================================================================
+# Decision Making
+# =============================================================================
 
 func make_decisions() -> void:
 	var priority: String = _evaluate_priority()
@@ -134,8 +273,15 @@ func make_decisions() -> void:
 
 
 func _evaluate_priority() -> String:
-	var military_str: int = get_military_strength()
-	var economic_str: int = get_economic_strength()
+	# Refresh strength cache periodically.
+	var now: float = Time.get_ticks_msec() / 1000.0
+	if now - _strength_cache_time > 2.0:
+		_cached_military_strength = _calc_military_strength()
+		_cached_economic_strength = _calc_economic_strength()
+		_strength_cache_time = now
+
+	var military_str: int = _cached_military_strength
+	var economic_str: int = _cached_economic_strength
 	var threat: int = _get_own_base_threat()
 	var weights: Dictionary = _personality_weights.get(personality, _personality_weights["balanced"])
 
@@ -153,7 +299,6 @@ func _evaluate_priority() -> String:
 	var econ_score: float = float(economic_str) * weights["economy_bias"]
 	var mil_score: float = float(military_str) * weights["military_bias"]
 	var exp_threshold: float = weights["expansion_threshold"]
-	var def_threshold: float = weights["defense_bias"]
 
 	match personality:
 		"aggressive":
@@ -177,10 +322,13 @@ func _evaluate_priority() -> String:
 				return "EXPANSION"
 			return "ECONOMY"
 
+# =============================================================================
+# Strength Calculations (cached)
+# =============================================================================
 
-func get_military_strength() -> int:
+func _calc_military_strength() -> int:
 	var total: int = 0
-	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	var all_units: Array[Node] = _get_cached_units()
 	for unit: Node in all_units:
 		var pid: int = unit.get("player_id") if unit.get("player_id") != null else -1
 		if pid != ai_player_id:
@@ -201,9 +349,9 @@ func get_military_strength() -> int:
 	return total
 
 
-func get_economic_strength() -> int:
+func _calc_economic_strength() -> int:
 	var total: int = 0
-	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	var all_units: Array[Node] = _get_cached_units()
 	for unit: Node in all_units:
 		var pid: int = unit.get("player_id") if unit.get("player_id") != null else -1
 		if pid != ai_player_id:
@@ -211,7 +359,7 @@ func get_economic_strength() -> int:
 		var utype: String = unit.get("unit_type") if unit.get("unit_type") != null else ""
 		if utype == "villager":
 			total += 10
-	var all_buildings: Array[Node] = get_tree().get_nodes_in_group("buildings")
+	var all_buildings: Array[Node] = _get_cached_buildings()
 	for bld: Node in all_buildings:
 		var pid: int = bld.get("player_id") if bld.get("player_id") != null else -1
 		if pid != ai_player_id:
@@ -232,6 +380,9 @@ func get_economic_strength() -> int:
 		total += int(resources[key] / 100)
 	return total
 
+# =============================================================================
+# Target Finding (with cached data)
+# =============================================================================
 
 func find_weakest_point() -> Vector2:
 	var base_pos: Vector2 = _get_own_base_position()
@@ -241,7 +392,7 @@ func find_weakest_point() -> Vector2:
 	for angle_i: int in range(0, 360, 45):
 		var check_pos: Vector2 = base_pos + Vector2.from_angle(deg_to_rad(float(angle_i))) * 200.0
 		var threat: int = 0
-		var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+		var all_units: Array[Node] = _get_cached_units()
 		for unit: Node in all_units:
 			var pid: int = unit.get("player_id") if unit.get("player_id") != null else -1
 			if pid == ai_player_id or pid == -1:
@@ -260,7 +411,7 @@ func find_enemy_base() -> Vector2:
 	var min_dist: float = 999999.0
 	var own_pos: Vector2 = _get_own_base_position()
 
-	var all_buildings: Array[Node] = get_tree().get_nodes_in_group("buildings")
+	var all_buildings: Array[Node] = _get_cached_buildings()
 	for bld: Node in all_buildings:
 		var pid: int = bld.get("player_id") if bld.get("player_id") != null else -1
 		if pid == ai_player_id or pid == -1:
@@ -277,7 +428,7 @@ func find_enemy_base() -> Vector2:
 	if min_dist < 999999.0:
 		return best_pos
 
-	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	var all_units: Array[Node] = _get_cached_units()
 	for unit: Node in all_units:
 		var pid: int = unit.get("player_id") if unit.get("player_id") != null else -1
 		if pid == ai_player_id or pid == -1:
@@ -309,7 +460,7 @@ func find_expansion_spot() -> Vector2:
 			if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
 				threat = combat_manager.get_threat_at_position(check_pos, 200.0, ai_player_id)
 		var enemy_nearby: bool = false
-		var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+		var all_units: Array[Node] = _get_cached_units()
 		for unit: Node in all_units:
 			var pid: int = unit.get("player_id") if unit.get("player_id") != null else -1
 			if pid == ai_player_id or pid == -1:
@@ -328,6 +479,9 @@ func find_expansion_spot() -> Vector2:
 
 	return best_spot
 
+# =============================================================================
+# Getters
+# =============================================================================
 
 func get_personality_weight(key: String) -> float:
 	return _personality_weights.get(personality, _personality_weights["balanced"]).get(key, 0.0)
@@ -341,14 +495,30 @@ func get_personality_profile() -> Dictionary:
 	return _personality_weights.get(personality, _personality_weights["balanced"]).duplicate()
 
 
+func get_military_strength() -> int:
+	return _cached_military_strength
+
+
+func get_economic_strength() -> int:
+	return _cached_economic_strength
+
+# =============================================================================
+# Internal Helpers
+# =============================================================================
+
 func _get_own_base_position() -> Vector2:
-	var all_buildings: Array[Node] = get_tree().get_nodes_in_group("buildings")
+	if _own_base_valid:
+		return _own_base_position
+
+	var all_buildings: Array[Node] = _get_cached_buildings()
 	for bld: Node in all_buildings:
 		var pid: int = bld.get("player_id") if bld.get("player_id") != null else -1
 		if pid == ai_player_id and bld is Node2D:
 			var btype: String = bld.get("building_type") if bld.get("building_type") != null else ""
 			if btype == "town_center":
-				return (bld as Node2D).global_position
+				_own_base_position = (bld as Node2D).global_position
+				_own_base_valid = true
+				return _own_base_position
 	return Vector2.ZERO
 
 
