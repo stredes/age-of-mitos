@@ -59,6 +59,7 @@ var particle_effects: ParticleEffectsManager = null
 var decorative_world: DecorativeWorldAnimations = null
 var weather_system: Node = null
 var ai_directors: Dictionary = {}
+var command_manager: CommandManager = null
 
 # =============================================================================
 # Internal State
@@ -183,6 +184,11 @@ func _create_system_nodes() -> void:
 	add_child(weather_system)
 	weather_system.wind_changed.connect(_on_weather_wind_changed)
 
+	# Command manager — centralizes all unit command dispatch.
+	command_manager = CommandManager.new()
+	command_manager.name = "CommandManager"
+	add_child(command_manager)
+
 	# UI layer is already defined in the .tscn scene.
 	var ui_layer: CanvasLayer = get_node_or_null("UILayer")
 	if ui_layer == null:
@@ -256,6 +262,11 @@ func _initialize_world() -> void:
 	decorative_world.start_ambient()
 
 	_initialized = true
+
+	# Wire up command manager with references it needs.
+	if command_manager != null:
+		command_manager.setup(selection_manager, unit_manager)
+
 	world_initialized.emit()
 
 # =============================================================================
@@ -547,23 +558,17 @@ func _on_button_pressed(button_name: String, player_id: int) -> void:
 	if player_id != GameManager.local_player_id:
 		return
 
+	# Delegate to CommandManager for unit commands.
+	if command_manager != null:
+		match button_name:
+			"stop_command", "hold_position_command", "attack_move_command", \
+			"patrol_command", "return_resource_command", \
+			"gather_wood", "gather_food", "gather_stone", "gather_gold":
+				return  # Already handled by CommandManager's EventBus listener.
+
 	match button_name:
 		"build_menu":
 			_open_build_menu()
-		"stop_command":
-			_stop_selected_units()
-		"attack_move_command":
-			_attack_move_selected_units()
-		"hold_position_command":
-			_hold_position_selected_units()
-		"gather_wood":
-			_assign_selected_units_to_resource("wood")
-		"gather_food":
-			_assign_selected_units_to_resource("food")
-		"gather_stone":
-			_assign_selected_units_to_resource("stone")
-		"gather_gold":
-			_assign_selected_units_to_resource("gold")
 		"cant_afford", "missing_prereq":
 			if camera_controller:
 				camera_controller.shake(1.4, 0.08)

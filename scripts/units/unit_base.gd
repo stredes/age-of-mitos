@@ -18,6 +18,9 @@ var pending_target_building: Node2D = null
 var pending_move_position: Vector2 = Vector2.ZERO
 var preferred_resource: String = ""
 var build_rate: int = 10
+var hold_position: bool = false
+var patrol_point_a: Vector2 = Vector2.ZERO
+var patrol_point_b: Vector2 = Vector2.ZERO
 
 var _unit_data: Dictionary = {}
 

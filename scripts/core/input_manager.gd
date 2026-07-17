@@ -226,6 +226,10 @@ func _handle_key(event: InputEventKey) -> void:
 				cancel_rally_mode()
 			elif has_build_mode:
 				cancel_build_mode()
+			elif _is_patrol_mode():
+				var cm: Node = get_node_or_null("/root/GameWorld/CommandManager")
+				if cm != null and cm.has_method("cancel_patrol"):
+					cm.cancel_patrol()
 			else:
 				deselect_all()
 		KEY_B:
@@ -234,6 +238,8 @@ func _handle_key(event: InputEventKey) -> void:
 			EventBus.button_pressed.emit("attack_move_command", GameManager.get_local_player_id())
 		KEY_H:
 			EventBus.button_pressed.emit("hold_position_command", GameManager.get_local_player_id())
+		KEY_P:
+			EventBus.button_pressed.emit("patrol_command", GameManager.get_local_player_id())
 		KEY_S:
 			EventBus.button_pressed.emit("stop_command", GameManager.get_local_player_id())
 		KEY_W:
@@ -276,6 +282,8 @@ func _process_release(release_screen_pos: Vector2) -> void:
 			_handle_rally_click(release_screen_pos)
 		elif has_build_mode:
 			_handle_build_click(release_screen_pos)
+		elif _is_patrol_mode():
+			_handle_patrol_click(release_screen_pos)
 		else:
 			_handle_click(release_screen_pos)
 	elif _has_dragged:
@@ -306,6 +314,13 @@ func _handle_right_click(world_pos: Vector2) -> void:
 	if _rally_mode:
 		# Right click cancels rally mode.
 		cancel_rally_mode()
+		return
+
+	if _is_patrol_mode():
+		# Right click cancels patrol mode.
+		var cm: Node = get_node_or_null("/root/GameWorld/CommandManager")
+		if cm != null and cm.has_method("cancel_patrol"):
+			cm.cancel_patrol()
 		return
 
 	if has_build_mode:
@@ -461,6 +476,22 @@ func enter_rally_mode(building_id: int) -> void:
 func cancel_rally_mode() -> void:
 	_rally_mode = false
 	_rally_building_id = -1
+
+
+## Check if patrol mode is active via CommandManager.
+func _is_patrol_mode() -> bool:
+	var cm: Node = get_node_or_null("/root/GameWorld/CommandManager")
+	if cm != null and cm.has_method("is_patrol_mode"):
+		return cm.is_patrol_mode()
+	return false
+
+
+## Handle a click while in patrol mode.
+func _handle_patrol_click(screen_pos: Vector2) -> void:
+	var world_pos: Vector2 = _screen_to_world(screen_pos)
+	var cm: Node = get_node_or_null("/root/GameWorld/CommandManager")
+	if cm != null and cm.has_method("complete_patrol"):
+		cm.complete_patrol(world_pos)
 
 
 func _handle_rally_click(screen_pos: Vector2) -> void:

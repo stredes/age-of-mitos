@@ -414,6 +414,10 @@ func _get_command_hotkey(label: String) -> String:
 		return "A"
 	if lower_label.begins_with("hold"):
 		return "H"
+	if lower_label.begins_with("patrol"):
+		return "P"
+	if lower_label.begins_with("return"):
+		return ""
 	if lower_label.begins_with("attack"):
 		return "A"
 	if lower_label.begins_with("move"):
@@ -472,6 +476,7 @@ func _add_unit_commands(unit_data: Dictionary) -> void:
 	if not unit_type.begins_with("villager"):
 		add_command_button("Atk-Move", "🗡️", func() -> void: EventBus.button_pressed.emit("attack_move_command", GameManager.local_player_id), "A")
 		add_command_button("Hold", "🛡️", func() -> void: EventBus.button_pressed.emit("hold_position_command", GameManager.local_player_id), "H")
+		add_command_button("Patrol", "🔄", func() -> void: EventBus.button_pressed.emit("patrol_command", GameManager.local_player_id), "P")
 
 	if unit_data.get("gather_rate", null) != null:
 		add_command_button("Wood", "🪵", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_wood"))
@@ -479,6 +484,7 @@ func _add_unit_commands(unit_data: Dictionary) -> void:
 		add_command_button("Stone", "🪨", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_stone"))
 		add_command_button("Gold", "🪙", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_gold"))
 		add_command_button("Build", "🔨", func() -> void: EventBus.button_pressed.emit("build_menu", GameManager.local_player_id))
+		add_command_button("Return", "📦", func() -> void: EventBus.button_pressed.emit("return_resource_command", GameManager.local_player_id))
 		add_command_button("Idle Villagers", "👷", func() -> void: _select_idle_villagers())
 
 
