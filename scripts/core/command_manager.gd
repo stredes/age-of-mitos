@@ -1,23 +1,58 @@
 ## Centralized command dispatcher. Listens to EventBus.button_pressed and
-## translates high-level commands (stop, hold, patrol, attack-move, gather, etc.)
-## into concrete state changes on selected units.
+## translates high-level commands into concrete unit state changes.
 ##
-## Attach as a child of GameWorld. Replaces the scattered command handling
-## previously spread across game_world.gd and input_manager.gd.
+## Emits `unit_command` so other systems (UI, audio, particles) can react
+## without coupling to the command internals.
 class_name CommandManager
 extends Node
+
+# =============================================================================
+# Signals
+# =============================================================================
+
+## Emitted after every successful command. Listeners can use this for
+## audio, particles, or UI feedback without referencing CommandManager.
+signal unit_command(command: String, unit_ids: Array, data: Dictionary)
+
+## Emitted when a command fails with a reason (e.g. "cant_afford", "invalid_target").
+signal command_failed(reason: String, details: Dictionary)
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+enum Cmd {
+	STOP,
+	HOLD,
+	ATTACK_MOVE,
+	PATROL,
+	REPAIR,
+	GATHER,
+	RETURN_RESOURCE,
+	MOVE,
+	ATTACK,
+}
+
+## Human-readable names for each command (used in signal and debug).
+const CMD_NAMES: Dictionary = {
+	Cmd.STOP: "stop",
+	Cmd.HOLD: "hold",
+	Cmd.ATTACK_MOVE: "attack_move",
+	Cmd.PATROL: "patrol",
+	Cmd.REPAIR: "repair",
+	Cmd.GATHER: "gather",
+	Cmd.RETURN_RESOURCE: "return_resource",
+	Cmd.MOVE: "move",
+	Cmd.ATTACK: "attack",
+}
 
 # =============================================================================
 # State
 # =============================================================================
 
-## The patrol mode stores two click positions to form waypoints.
 var _patrol_mode: bool = false
 var _patrol_point_a: Vector2 = Vector2.ZERO
 var _patrol_click_count: int = 0
-
-## The attack-move mode waits for a destination click.
-var _attack_move_mode: bool = false
 
 ## Cached references (set by GameWorld after _ready).
 var selection_manager: Node = null
@@ -52,6 +87,8 @@ func _on_button_pressed(button_name: String, player_id: int) -> void:
 			cmd_attack_move()
 		"patrol_command":
 			cmd_patrol()
+		"repair_command":
+			cmd_repair()
 		"return_resource_command":
 			cmd_return_resource()
 		"gather_wood":
@@ -62,55 +99,51 @@ func _on_button_pressed(button_name: String, player_id: int) -> void:
 			cmd_gather("stone")
 		"gather_gold":
 			cmd_gather("gold")
-		"build_menu":
-			# Forward to GameWorld's build menu handler.
-			pass
-		_:
-			if button_name.begins_with("train_"):
-				pass  # Handled by GameWorld.
 
 # =============================================================================
-# Command API — called by GameWorld and InputManager
+# Command API
 # =============================================================================
 
-## Stop all selected units immediately.
 func cmd_stop() -> void:
+	var ids: Array = _selected_ids()
 	_apply_to_selected(func(unit: Node2D) -> void:
 		_clear_unit_pending(unit)
-		var move_comp: Node = unit.get_node_or_null("MovementComponent")
-		if move_comp != null and move_comp.has_method("stop"):
-			move_comp.stop()
+		var mc: Node = unit.get_node_or_null("MovementComponent")
+		if mc != null and mc.has_method("stop"):
+			mc.stop()
 		unit.set("hold_position", false)
 		_change_state(unit, "IdleState")
 	)
+	unit_command.emit(CMD_NAMES[Cmd.STOP], ids, {})
 
 
-## Hold position: stop and attack enemies in range, never chase.
 func cmd_hold_position() -> void:
+	var ids: Array = _selected_ids()
 	_apply_to_selected(func(unit: Node2D) -> void:
-		var move_comp: Node = unit.get_node_or_null("MovementComponent")
-		if move_comp != null and move_comp.has_method("stop"):
-			move_comp.stop()
+		var mc: Node = unit.get_node_or_null("MovementComponent")
+		if mc != null and mc.has_method("stop"):
+			mc.stop()
 		_clear_unit_pending(unit)
 		_change_state(unit, "HoldState")
 	)
+	unit_command.emit(CMD_NAMES[Cmd.HOLD], ids, {})
 
 
-## Attack-move: advance to cursor position, engaging enemies along the way.
 func cmd_attack_move() -> void:
+	var ids: Array = _selected_military_ids()
 	_apply_to_selected_military(func(unit: Node2D) -> void:
 		_change_state(unit, "AttackMoveState")
 	)
+	unit_command.emit(CMD_NAMES[Cmd.ATTACK_MOVE], ids, {})
 
 
-## Patrol: set waypoints on selected units and start patrolling.
 func cmd_patrol() -> void:
 	_patrol_mode = true
 	_patrol_click_count = 0
 	EventBus.menu_opened.emit("patrol_mode")
+	unit_command.emit(CMD_NAMES[Cmd.PATROL], _selected_ids(), {"phase": "awaiting_click"})
 
 
-## Complete the patrol command with the given world position.
 func complete_patrol(world_pos: Vector2) -> void:
 	if not _patrol_mode:
 		return
@@ -118,13 +151,13 @@ func complete_patrol(world_pos: Vector2) -> void:
 	_patrol_click_count += 1
 	if _patrol_click_count == 1:
 		_patrol_point_a = world_pos
-		# Wait for second click for point B.
+		unit_command.emit(CMD_NAMES[Cmd.PATROL], _selected_ids(), {"phase": "point_a_set", "point_a": world_pos})
 		return
 
-	# Second click — execute patrol.
 	_patrol_mode = false
 	var point_a: Vector2 = _patrol_point_a
 	var point_b: Vector2 = world_pos
+	var ids: Array = _selected_military_ids()
 
 	_apply_to_selected_military(func(unit: Node2D) -> void:
 		unit.set("patrol_point_a", point_a)
@@ -135,9 +168,9 @@ func complete_patrol(world_pos: Vector2) -> void:
 	_patrol_point_a = Vector2.ZERO
 	_patrol_click_count = 0
 	EventBus.menu_closed.emit("patrol_mode")
+	unit_command.emit(CMD_NAMES[Cmd.PATROL], ids, {"point_a": point_a, "point_b": point_b})
 
 
-## Cancel patrol mode.
 func cancel_patrol() -> void:
 	_patrol_mode = false
 	_patrol_click_count = 0
@@ -145,82 +178,123 @@ func cancel_patrol() -> void:
 	EventBus.menu_closed.emit("patrol_mode")
 
 
-## Return carried resources to drop-off, then resume harvesting.
-func cmd_return_resource() -> void:
+func cmd_repair() -> void:
+	var ids: Array = _selected_villager_ids()
 	_apply_to_selected_villagers(func(unit: Node2D) -> void:
-		var harvest_comp: Node = unit.get_node_or_null("HarvestComponent")
-		if harvest_comp == null:
+		_change_state(unit, "RepairState")
+	)
+	unit_command.emit(CMD_NAMES[Cmd.REPAIR], ids, {})
+
+
+func cmd_return_resource() -> void:
+	var ids: Array = _selected_villager_ids()
+	_apply_to_selected_villagers(func(unit: Node2D) -> void:
+		var hc: Node = unit.get_node_or_null("HarvestComponent")
+		if hc == null:
 			return
-		var carry: int = int(harvest_comp.get("current_carry")) if harvest_comp.get("current_carry") != null else 0
+		var carry: int = int(hc.get("current_carry")) if hc.get("current_carry") != null else 0
 		if carry <= 0:
 			return
 		_change_state(unit, "ReturnResourceState")
 	)
+	unit_command.emit(CMD_NAMES[Cmd.RETURN_RESOURCE], ids, {})
 
 
-## Assign selected villagers to gather a resource type.
 func cmd_gather(resource_type: String) -> void:
+	var ids: Array = _selected_villager_ids()
 	_apply_to_selected_villagers(func(unit: Node2D) -> void:
 		unit.set("preferred_resource", resource_type)
-		var harvest_comp: Node = unit.get_node_or_null("HarvestComponent")
-		if harvest_comp != null and harvest_comp.has_method("find_nearest_resource"):
-			var target: Node2D = harvest_comp.find_nearest_resource(resource_type)
+		var hc: Node = unit.get_node_or_null("HarvestComponent")
+		if hc != null and hc.has_method("find_nearest_resource"):
+			var target: Node2D = hc.find_nearest_resource(resource_type)
 			if target != null:
 				unit.set("pending_target_resource", target)
 				_change_state(unit, "HarvestState")
 	)
+	unit_command.emit(CMD_NAMES[Cmd.GATHER], ids, {"resource_type": resource_type})
 
 # =============================================================================
 # Queries
 # =============================================================================
 
-## Returns true if we are waiting for patrol waypoint clicks.
 func is_patrol_mode() -> bool:
 	return _patrol_mode
 
-
-## Returns true if we are waiting for attack-move destination.
-func is_attack_move_mode() -> bool:
-	return _attack_move_mode
-
 # =============================================================================
-# Internals
+# Internals — iteration helpers
 # =============================================================================
 
 func _apply_to_selected(callback: Callable) -> void:
 	if selection_manager == null or unit_manager == null:
 		return
-	for unit_id: int in selection_manager.get_selected_units():
-		var unit: Node2D = unit_manager.get_unit(unit_id)
-		if unit != null and is_instance_valid(unit):
-			callback.call(unit)
+	for uid: int in selection_manager.get_selected_units():
+		var u: Node2D = unit_manager.get_unit(uid)
+		if u != null and is_instance_valid(u):
+			callback.call(u)
 
 
 func _apply_to_selected_military(callback: Callable) -> void:
 	if selection_manager == null or unit_manager == null:
 		return
-	for unit_id: int in selection_manager.get_selected_units():
-		var unit: Node2D = unit_manager.get_unit(unit_id)
-		if unit == null or not is_instance_valid(unit):
+	for uid: int in selection_manager.get_selected_units():
+		var u: Node2D = unit_manager.get_unit(uid)
+		if u == null or not is_instance_valid(u):
 			continue
-		var utype: String = unit.get("unit_type") if unit.get("unit_type") != null else ""
-		if utype.begins_with("villager"):
+		var ut: String = u.get("unit_type") if u.get("unit_type") != null else ""
+		if ut.begins_with("villager"):
 			continue
-		callback.call(unit)
+		callback.call(u)
 
 
 func _apply_to_selected_villagers(callback: Callable) -> void:
 	if selection_manager == null or unit_manager == null:
 		return
-	for unit_id: int in selection_manager.get_selected_units():
-		var unit: Node2D = unit_manager.get_unit(unit_id)
-		if unit == null or not is_instance_valid(unit):
+	for uid: int in selection_manager.get_selected_units():
+		var u: Node2D = unit_manager.get_unit(uid)
+		if u == null or not is_instance_valid(u):
 			continue
-		var utype: String = unit.get("unit_type") if unit.get("unit_type") != null else ""
-		if not utype.begins_with("villager"):
+		var ut: String = u.get("unit_type") if u.get("unit_type") != null else ""
+		if not ut.begins_with("villager"):
 			continue
-		callback.call(unit)
+		callback.call(u)
 
+
+func _selected_ids() -> Array:
+	if selection_manager == null:
+		return []
+	return selection_manager.get_selected_units()
+
+
+func _selected_military_ids() -> Array:
+	if selection_manager == null or unit_manager == null:
+		return []
+	var result: Array = []
+	for uid: int in selection_manager.get_selected_units():
+		var u: Node2D = unit_manager.get_unit(uid)
+		if u == null or not is_instance_valid(u):
+			continue
+		var ut: String = u.get("unit_type") if u.get("unit_type") != null else ""
+		if not ut.begins_with("villager"):
+			result.append(uid)
+	return result
+
+
+func _selected_villager_ids() -> Array:
+	if selection_manager == null or unit_manager == null:
+		return []
+	var result: Array = []
+	for uid: int in selection_manager.get_selected_units():
+		var u: Node2D = unit_manager.get_unit(uid)
+		if u == null or not is_instance_valid(u):
+			continue
+		var ut: String = u.get("unit_type") if u.get("unit_type") != null else ""
+		if ut.begins_with("villager"):
+			result.append(uid)
+	return result
+
+# =============================================================================
+# Internals — unit helpers
+# =============================================================================
 
 func _clear_unit_pending(unit: Node2D) -> void:
 	unit.set("pending_move_position", Vector2.ZERO)

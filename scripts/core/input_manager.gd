@@ -333,6 +333,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 
 		var target_resource: Node2D = _find_resource_at_position(world_pos)
 		var target_building: Node2D = _find_construction_at_position(world_pos)
+		var damaged_building: Node2D = _find_damaged_building_at(world_pos)
 		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
 		var unit_index: int = 0
 		for unit_id: int in selected_unit_ids:
@@ -345,7 +346,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 				is_villager = unit.get("unit_type") == "villager"
 
 			if target_resource != null and is_villager:
-				# Only villagers harvest resources.
+				# Villagers harvest resources.
 				unit.set("pending_target_resource", target_resource)
 				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 				if state_machine != null and state_machine.has_method("change_state"):
@@ -356,6 +357,12 @@ func _handle_right_click(world_pos: Vector2) -> void:
 				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 				if state_machine != null and state_machine.has_method("change_state"):
 					state_machine.change_state("BuildState")
+			elif damaged_building != null and is_villager:
+				# Villagers repair damaged friendly buildings.
+				unit.set("pending_target_building", damaged_building)
+				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+				if state_machine != null and state_machine.has_method("change_state"):
+					state_machine.change_state("RepairState")
 			else:
 				var move_target: Vector2 = formation_targets.get(unit_index, world_pos)
 				unit.set("pending_move_position", move_target)
@@ -726,6 +733,43 @@ func _find_construction_at_position(world_pos: Vector2) -> Node2D:
 			best_dist_sq = dist_sq
 			best = node
 	return best
+
+
+func _find_damaged_building_at(world_pos: Vector2) -> Node2D:
+	var best: Node2D = null
+	var best_dist_sq: float = 64.0 * 64.0
+	var player_id: int = _get_local_player_id()
+	var bm: Node = _find_building_manager()
+	if bm == null or not bm.has_method("get"):
+		return null
+	var buildings_dict: Dictionary = bm.get("buildings") if bm.get("buildings") != null else {}
+	for id_variant: Variant in buildings_dict:
+		var node: Node2D = buildings_dict[id_variant]
+		if not is_instance_valid(node):
+			continue
+		if node.get("is_constructed") != true:
+			continue
+		var bld_player: int = node.get("player_id") if node.get("player_id") != null else -2
+		if bld_player != player_id:
+			continue
+		var hp: int = node.get("current_hp") if node.get("current_hp") != null else 0
+		var max_hp: int = node.get("max_hp") if node.get("max_hp") != null else 100
+		if hp >= max_hp:
+			continue
+		var dist_sq: float = node.global_position.distance_squared_to(world_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best = node
+	return best
+
+
+func _get_local_player_id() -> int:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm != null and gm.has_method("get"):
+		var pid = gm.get("local_player_id")
+		if pid != null:
+			return int(pid)
+	return 0
 
 
 func _find_resource_recursive(node: Node, world_pos: Vector2, best: Node2D, best_dist_sq: float) -> Node2D:
