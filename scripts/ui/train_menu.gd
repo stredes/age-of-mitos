@@ -391,7 +391,9 @@ func _update_progress_display() -> void:
 			_progress_bar.value = progress * 100.0
 			_progress_label.visible = true
 			_progress_label.text = "Producing: %d%%" % int(progress * 100.0)
-	_update_queue_display()
+		else:
+			_progress_bar.visible = false
+			_progress_label.visible = false
 
 
 func _find_building_by_id(building_id: int) -> Node2D:
@@ -413,9 +415,18 @@ func _format_cost_short(cost: Dictionary) -> String:
 	return " ".join(parts)
 
 
-func _on_construction_progress(_building_id: int, _current_hp: int, _total_hp: int) -> void:
-	pass
+func _on_construction_progress(building_id: int, current_hp: int, total_hp: int) -> void:
+	if building_id == _current_building_id and total_hp > 0:
+		var progress: float = float(current_hp) / float(total_hp)
+		if _progress_bar:
+			_progress_bar.visible = true
+			_progress_bar.value = progress * 100.0
+		if _progress_label:
+			_progress_label.visible = true
+			_progress_label.text = "Building: %d%%" % int(progress * 100.0)
 
 
-func _on_construction_completed(_building_id: int, _player_id: int) -> void:
-	pass
+func _on_construction_completed(building_id: int, _player_id: int) -> void:
+	if building_id == _current_building_id:
+		_update_queue_display()
+		refresh_unit_options(_current_building_type)

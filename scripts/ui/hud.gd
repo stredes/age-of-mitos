@@ -457,7 +457,7 @@ func _clear_action_buttons() -> void:
 
 	if action_panel != null:
 		for child: Node in action_panel.get_children():
-			if child.name != "ActionLabel" and child.name != "HPBar":
+			if child.name != "ActionLabel" and child.name != "ActionBar" and child.name != "ConstructionBar" and child.name != "ConstructionLabel":
 				child.queue_free()
 
 

@@ -228,9 +228,11 @@ func _check_prerequisites(prerequisite_buildings: Array, player_id: int) -> bool
 	if bm == null:
 		return true
 
-	var player_buildings: Array = bm.get("player_buildings") if bm.get("player_buildings") != null else []
-	if player_buildings.is_empty() and bm.has_method("get_player_buildings"):
+	var player_buildings: Array = []
+	if bm.has_method("get_player_buildings"):
 		player_buildings = bm.get_player_buildings(player_id)
+	elif bm.get("player_buildings") != null:
+		player_buildings = bm.get("player_buildings")
 
 	var owned_types: Array[String] = []
 	for b: Node in player_buildings:

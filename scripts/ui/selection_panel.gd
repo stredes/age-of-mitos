@@ -133,6 +133,9 @@ func show_unit(unit_data: Dictionary, unit_node: Node2D) -> void:
 	visible = true
 	_is_showing = true
 
+	if unit_node and unit_node.has_method("get") and unit_node.get("unit_id") != null:
+		_current_unit_ids = [unit_node.get("unit_id")]
+
 	var display_name: String = unit_data.get("display_name", "Unknown")
 	_name_label.text = display_name
 
@@ -167,6 +170,11 @@ func show_units(unit_nodes: Array) -> void:
 	clear()
 	visible = true
 	_is_showing = true
+
+	for node_variant: Variant in unit_nodes:
+		var unit_node: Node = node_variant as Node
+		if is_instance_valid(unit_node) and unit_node.has_method("get") and unit_node.get("unit_id") != null:
+			_current_unit_ids.append(unit_node.get("unit_id"))
 
 	_name_label.text = str(unit_nodes.size()) + " Units Selected"
 	_state_label.text = ""
