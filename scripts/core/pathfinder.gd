@@ -130,6 +130,25 @@ func _apply_adjacency_penalties(cell: Vector2i) -> void:
 		_astar.set_point_weight_scale(cell, 1.0 + (adjacent_wall_penalty * blocked_neighbors))
 
 
+## Refresh cells around a building placement (handles edges).
+## Call this when a building is placed or destroyed.
+func refresh_building_area(origin: Vector2i, size: Vector2i) -> void:
+	if not _initialized or _grid_manager == null:
+		return
+
+	for y in range(origin.y - 1, origin.y + size.y + 2):
+		for x in range(origin.x - 1, origin.x + size.x + 2):
+			var cell: Vector2i = Vector2i(x, y)
+			if not _is_in_bounds(cell):
+				continue
+			var is_solid: bool = not _grid_manager.is_walkable(cell) or _temporarily_blocked.has(cell)
+			_astar.set_point_solid(cell, is_solid)
+			if not is_solid and adjacent_wall_penalty > 0.0:
+				_apply_adjacency_penalties(cell)
+
+	invalidate_cache_near(origin)
+
+
 func rebuild() -> void:
 	if _grid_manager == null:
 		return

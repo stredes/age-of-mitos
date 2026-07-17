@@ -1,5 +1,6 @@
 ## Manages all selection logic for units and buildings. Handles single clicks,
-## additive selection, box/rubber-band selection, and emits selection state changes.
+## additive selection, box/rubber-band selection, double-click select-by-type,
+## and control groups 1-9.
 class_name SelectionManager
 extends Node
 
@@ -14,7 +15,24 @@ var selection_box_end: Vector2 = Vector2.ZERO
 var is_box_selecting: bool = false
 var max_selection: int = 50
 
+## Control groups: key (1-9) → Array[int] of unit_ids.
+var control_groups: Dictionary = {}
+
+## Double-click detection.
+var _last_click_time: float = 0.0
+var _last_click_pos: Vector2 = Vector2.ZERO
+var _double_click_threshold: float = 0.3  # seconds
+var _double_click_max_dist: float = 50.0  # pixels
+
 var _local_player_id: int = -1
+
+# =============================================================================
+# Signals
+# =============================================================================
+
+signal group_assigned(group_id: int, unit_ids: Array[int])
+signal group_recalled(group_id: int, unit_ids: Array[int])
+signal double_click_select(unit_type: String, unit_ids: Array[int])
 
 # =============================================================================
 # Lifecycle
@@ -22,6 +40,7 @@ var _local_player_id: int = -1
 
 func _ready() -> void:
 	_connect_event_bus()
+	_connect_input_actions()
 
 
 func _process(_delta: float) -> void:
@@ -36,10 +55,165 @@ func _connect_event_bus() -> void:
 		EventBus.selection_ended.connect(_on_selection_ended)
 
 
-func _get_local_player_id() -> int:
-	if _local_player_id == -1:
-		_local_player_id = GameManager.get_local_player_id()
-	return _local_player_id
+func _connect_input_actions() -> void:
+	# Group assignment: Ctrl+1-9
+	# Group recall: 1-9 (without Ctrl)
+	for i in range(1, 10):
+		var action_name: String = "group_%d" % i
+		if not InputMap.has_action(action_name):
+			InputMap.add_action(action_name)
+			var event: InputEventKey = InputEventKey.new()
+			event.keycode = KEY_1 + i - 1
+			event.physical_keycode = KEY_1 + i - 1
+			InputMap.action_add_event(action_name, event)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# Handle group hotkeys.
+	for i in range(1, 10):
+		var action_name: String = "group_%d" % i
+		if event.is_action_pressed(action_name):
+			if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_COMMAND):
+				_assign_group(i)
+			else:
+				_recall_group(i)
+			get_viewport().set_input_as_handled()
+			return
+
+# =============================================================================
+# Double-Click Handling
+# =============================================================================
+
+## Call this from InputManager on left click. Returns true if double-click detected.
+func handle_double_click(world_pos: Vector2) -> bool:
+	var now: float = Time.get_ticks_msec() / 1000.0
+	var time_diff: float = now - _last_click_time
+	var dist_diff: float = world_pos.distance_to(_last_click_pos)
+
+	_last_click_time = now
+	_last_click_pos = world_pos
+
+	if time_diff < _double_click_threshold and dist_diff < _double_click_max_dist:
+		_select_all_of_type_at(world_pos)
+		return true
+
+	return false
+
+
+## Select all units of the same type as the clicked unit.
+func _select_all_of_type_at(world_pos: Vector2) -> void:
+	var clicked_unit: int = _find_unit_at_position(world_pos)
+	if clicked_unit == -1:
+		return
+
+	var clicked_node: Node = _find_unit_node(clicked_unit)
+	if clicked_node == null:
+		return
+
+	var unit_type: String = clicked_node.get("unit_type") if clicked_node.get("unit_type") != null else ""
+	if unit_type.is_empty():
+		return
+
+	deselect_all()
+
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	var found: Array[int] = []
+
+	for unit_node: Node in all_units:
+		if found.size() >= max_selection:
+			break
+		if not unit_node is Node2D:
+			continue
+		if not _is_own_unit_node(unit_node):
+			continue
+		var utype: String = unit_node.get("unit_type") if unit_node.get("unit_type") != null else ""
+		if utype == unit_type:
+			var uid: int = unit_node.get("unit_id") if unit_node.has_method("get") and unit_node.get("unit_id") != null else -1
+			if uid != -1 and uid not in found:
+				found.append(uid)
+
+	for uid: int in found:
+		selected_units.append(uid)
+		_set_unit_selected_visual(uid, true)
+		EventBus.unit_selected.emit(uid, _get_local_player_id())
+
+	if found.size() > 0:
+		_emit_selection_changed()
+		double_click_select.emit(unit_type, found)
+
+# =============================================================================
+# Control Groups (1-9)
+# =============================================================================
+
+## Assign current selection to a control group.
+func _assign_group(group_id: int) -> void:
+	if selected_units.is_empty():
+		# Clear the group if nothing selected.
+		control_groups.erase(group_id)
+		group_assigned.emit(group_id, [])
+		return
+
+	control_groups[group_id] = selected_units.duplicate()
+	group_assigned.emit(group_id, control_groups[group_id])
+
+
+## Recall a control group (select its units).
+func _recall_group(group_id: int) -> void:
+	if not control_groups.has(group_id):
+		return
+
+	var unit_ids: Array[int] = control_groups[group_id]
+	# Filter out dead/invalid units.
+	var valid_ids: Array[int] = []
+	for uid: int in unit_ids:
+		var node: Node = _find_unit_node(uid)
+		if node != null:
+			var hp: int = 0
+			var health_comp: Node = node.get_node_or_null("HealthComponent")
+			if health_comp != null:
+				hp = health_comp.get("current_hp") if health_comp.get("current_hp") != null else 0
+			else:
+				hp = node.get("current_hp") if node.get("current_hp") != null else 0
+			if hp > 0:
+				valid_ids.append(uid)
+
+	# Update group with only alive units.
+	control_groups[group_id] = valid_ids
+
+	deselect_all()
+
+	for uid: int in valid_ids:
+		if uid not in selected_units:
+			selected_units.append(uid)
+			_set_unit_selected_visual(uid, true)
+			EventBus.unit_selected.emit(uid, _get_local_player_id())
+
+	if valid_ids.size() > 0:
+		_emit_selection_changed()
+		group_recalled.emit(group_id, valid_ids)
+
+
+## Check if a unit is in any control group.
+func get_unit_group(unit_id: int) -> int:
+	for group_id: int in control_groups:
+		if unit_id in control_groups[group_id]:
+			return group_id
+	return -1
+
+
+## Get all control groups.
+func get_control_groups() -> Dictionary:
+	return control_groups.duplicate(true)
+
+
+## Clear a specific control group.
+func clear_group(group_id: int) -> void:
+	control_groups.erase(group_id)
+
+
+## Clear all control groups.
+func clear_all_groups() -> void:
+	control_groups.clear()
 
 # =============================================================================
 # Single Unit Selection
@@ -153,6 +327,16 @@ func get_selection_count() -> int:
 func has_selection() -> bool:
 	return selected_units.size() > 0 or selected_building != -1
 
+
+## Get the unit type of the first selected unit.
+func get_selection_type() -> String:
+	if selected_units.is_empty():
+		return ""
+	var node: Node = _find_unit_node(selected_units[0])
+	if node != null:
+		return node.get("unit_type") if node.get("unit_type") != null else ""
+	return ""
+
 # =============================================================================
 # Box Selection
 # =============================================================================
@@ -177,6 +361,11 @@ func end_box_selection(world_pos: Vector2) -> Array[int]:
 
 	var rect: Rect2 = get_selection_box()
 	var found: Array[int] = select_all_in_rect(rect)
+
+	# Clear box coordinates after selection completes.
+	selection_box_start = Vector2.ZERO
+	selection_box_end = Vector2.ZERO
+
 	return found
 
 
@@ -232,6 +421,10 @@ func select_all_in_rect(rect: Rect2) -> Array[int]:
 # =============================================================================
 
 func handle_click_at(world_pos: Vector2, shift_held: bool) -> void:
+	# Check for double-click first.
+	if handle_double_click(world_pos):
+		return
+
 	var clicked_unit: int = _find_unit_at_position(world_pos)
 	if clicked_unit != -1:
 		select_unit(clicked_unit, shift_held)
@@ -294,6 +487,15 @@ func _find_building_at_position(world_pos: Vector2) -> int:
 			best_id = bid
 
 	return best_id
+
+
+func _find_unit_node(unit_id: int) -> Node:
+	var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
+	for unit_node: Node in all_units:
+		if unit_node.has_method("get") and unit_node.get("unit_id") != null:
+			if int(unit_node.get("unit_id")) == unit_id:
+				return unit_node
+	return null
 
 # =============================================================================
 # Ownership
