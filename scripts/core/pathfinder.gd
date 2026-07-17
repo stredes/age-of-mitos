@@ -148,6 +148,44 @@ func refresh_cell(cell: Vector2i) -> void:
 	var is_solid: bool = not _grid_manager.is_walkable(cell) or _temporarily_blocked.has(cell)
 	_astar.set_point_solid(cell, is_solid)
 
+
+## Refresh multiple cells at once (e.g. when a building is placed/destroyed).
+func refresh_cells(cells: Array[Vector2i]) -> void:
+	for cell: Vector2i in cells:
+		refresh_cell(cell)
+
+
+## Check if a specific cell is currently blocked (solid in AStarGrid2D).
+func is_cell_blocked(cell: Vector2i) -> bool:
+	if not _initialized or not _is_in_bounds(cell):
+		return true
+	return _astar.is_point_solid(cell)
+
+
+## Find the nearest walkable world position to a given world position.
+func find_nearest_walkable_world(world_pos: Vector2, search_radius: int = 10) -> Vector2:
+	var cell: Vector2i = _world_to_cell(world_pos)
+	var result: Vector2i = _get_nearest_walkable(cell, search_radius)
+	if result == Vector2i(-1, -1):
+		return world_pos
+	return _cell_to_world(result)
+
+
+## Check if a straight-line path between two world positions is clear.
+func is_line_of_sight_clear(from: Vector2, to: Vector2) -> bool:
+	var from_cell: Vector2i = _world_to_cell(from)
+	var to_cell: Vector2i = _world_to_cell(to)
+	var diff: Vector2i = to_cell - from_cell
+	var steps: int = maxi(maxi(absi(diff.x), absi(diff.y)), 1)
+	var step: Vector2 = Vector2(diff) / float(steps)
+	var current: Vector2 = Vector2(from_cell)
+	for i in range(steps + 1):
+		var cell: Vector2i = Vector2i(floori(current.x), floori(current.y))
+		if _is_in_bounds(cell) and _astar.is_point_solid(cell):
+			return false
+		current += step
+	return true
+
 # =============================================================================
 # Pathfinding
 # =============================================================================

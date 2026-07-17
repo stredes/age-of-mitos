@@ -286,6 +286,9 @@ func _handle_right_click(world_pos: Vector2) -> void:
 		return
 
 	if selected_unit_ids.size() > 0:
+		# Show visual destination marker.
+		_show_destination_marker(world_pos)
+
 		var target_resource: Node2D = _find_resource_at_position(world_pos)
 		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
 		var unit_index: int = 0
@@ -307,6 +310,27 @@ func _handle_right_click(world_pos: Vector2) -> void:
 				EventBus.unit_moved.emit(unit_id, move_target)
 			unit_index += 1
 		AudioManager.play_ui_click()
+
+
+func _show_destination_marker(world_pos: Vector2) -> void:
+	if _destination_marker == null or not is_instance_valid(_destination_marker):
+		_destination_marker = _find_destination_marker()
+	if _destination_marker == null:
+		_destination_marker = DestinationMarker.new()
+		_destination_marker.name = "DestinationMarker"
+		var root: Node = get_tree().current_scene
+		if root != null:
+			root.add_child(_destination_marker)
+
+	if _destination_marker != null and _destination_marker.has_method("show_marker"):
+		_destination_marker.show_marker(world_pos)
+
+
+func _find_destination_marker() -> Node:
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return null
+	return scene.get_node_or_null("DestinationMarker")
 
 # =============================================================================
 # Build Mode
