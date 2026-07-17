@@ -5,8 +5,11 @@ var minimap: Control = null
 var build_menu: Control = null
 var train_menu: Control = null
 var selection_panel: Control = null
+var command_card: Control = null
+var victory_screen: Control = null
+var tech_tree_panel: Control = null
+var diplomacy_panel: Control = null
 var _pause_menu: Control = null
-var _game_over_panel: Control = null
 var _open_menu: String = ""
 
 
@@ -21,10 +24,18 @@ func _find_ui_nodes() -> void:
 	build_menu = _find_node_recursive("/root/GameWorld/UILayer", "BuildMenu") as Control
 	train_menu = _find_node_recursive("/root/GameWorld/UILayer", "TrainMenu") as Control
 	selection_panel = _find_node_recursive("/root/GameWorld/UILayer", "SelectionPanel") as Control
+	command_card = _find_node_recursive("/root/GameWorld/UILayer", "CommandCard") as Control
+	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
+	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
+	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
 
 	if hud and hud.has_signal("build_menu_requested"):
 		if not hud.build_menu_requested.is_connected(open_build_menu):
 			hud.build_menu_requested.connect(open_build_menu)
+
+	if command_card and command_card.has_signal("command_issued"):
+		if not command_card.command_issued.is_connected(_on_command_issued):
+			command_card.command_issued.connect(_on_command_issued)
 
 
 func _find_node_recursive(root_path: String, target_name: String) -> Node:
@@ -266,34 +277,42 @@ func _on_game_paused(is_paused: bool) -> void:
 
 
 func _on_selection_changed(selected_unit_ids: Array, selected_building_ids: Array) -> void:
-	if selection_panel == null:
+	if selection_panel == null and command_card == null:
 		return
 
 	if selected_unit_ids.size() == 0 and selected_building_ids.size() == 0:
-		selection_panel.clear()
+		if selection_panel:
+			selection_panel.clear()
+		if command_card:
+			command_card.show_selection([], -1)
 		return
 
-	if selected_unit_ids.size() > 0:
-		var unit_nodes: Array = []
-		for uid: Variant in selected_unit_ids:
-			var node: Node = _find_unit_by_id(uid)
-			if node != null:
-				unit_nodes.append(node)
+	if selection_panel:
+		if selected_unit_ids.size() > 0:
+			var unit_nodes: Array = []
+			for uid: Variant in selected_unit_ids:
+				var node: Node = _find_unit_by_id(uid)
+				if node != null:
+					unit_nodes.append(node)
 
-		if unit_nodes.size() == 1:
-			var unit_node: Node = unit_nodes[0]
-			var unit_type: String = unit_node.get("unit_type") if unit_node.has_method("get") and unit_node.get("unit_type") != null else ""
-			var unit_data: Dictionary = DataManager.get_unit_data(unit_type)
-			selection_panel.show_unit(unit_data, unit_node)
-		elif unit_nodes.size() > 1:
-			selection_panel.show_units(unit_nodes)
-	elif selected_building_ids.size() > 0:
-		var building_id: int = selected_building_ids[0]
-		var building_node: Node2D = _find_building_by_id(building_id)
-		if building_node != null:
-			var building_type: String = building_node.get("building_type") if building_node.has_method("get") and building_node.get("building_type") != null else ""
-			var building_data: Dictionary = DataManager.get_building_data(building_type)
-			selection_panel.show_building(building_data, building_node)
+			if unit_nodes.size() == 1:
+				var unit_node: Node = unit_nodes[0]
+				var unit_type: String = unit_node.get("unit_type") if unit_node.has_method("get") and unit_node.get("unit_type") != null else ""
+				var unit_data: Dictionary = DataManager.get_unit_data(unit_type)
+				selection_panel.show_unit(unit_data, unit_node)
+			elif unit_nodes.size() > 1:
+				selection_panel.show_units(unit_nodes)
+		elif selected_building_ids.size() > 0:
+			var building_id: int = selected_building_ids[0]
+			var building_node: Node2D = _find_building_by_id(building_id)
+			if building_node != null:
+				var building_type: String = building_node.get("building_type") if building_node.has_method("get") and building_node.get("building_type") != null else ""
+				var building_data: Dictionary = DataManager.get_building_data(building_type)
+				selection_panel.show_building(building_data, building_node)
+
+	if command_card:
+		var building_id: int = selected_building_ids[0] if selected_building_ids.size() > 0 else -1
+		command_card.show_selection(selected_unit_ids, building_id)
 
 
 func _on_building_selected(building_id: int, player_id: int) -> void:
@@ -312,6 +331,9 @@ func _on_building_selected(building_id: int, player_id: int) -> void:
 	if produces.size() > 0 and is_constructed:
 		if selection_panel and selection_panel.has_method("show_building"):
 			selection_panel.show_building(building_data, building_node)
+
+	if command_card:
+		command_card.show_selection([], building_id)
 
 
 func _on_unit_selected(_unit_id: int, _player_id: int) -> void:
@@ -348,3 +370,43 @@ func _find_building_by_id(building_id: int) -> Node2D:
 	if bm and bm.has_method("get_building"):
 		return bm.get_building(building_id)
 	return null
+
+
+func _on_command_issued(command: String, params: Dictionary) -> void:
+	var player_id: int = GameManager.local_player_id
+
+	if command.begins_with("train_"):
+		var unit_type: String = command.substr(6)
+		var building_id: int = params.get("building_id", -1)
+		if building_id != -1:
+			EventBus.button_pressed.emit("train_" + unit_type, player_id)
+		return
+
+	if command.begins_with("research_"):
+		var tech_id: String = command.substr(9)
+		EventBus.button_pressed.emit("research_" + tech_id, player_id)
+		return
+
+	match command:
+		"attack":
+			EventBus.button_pressed.emit("attack_command", player_id)
+		"move":
+			EventBus.button_pressed.emit("move_command", player_id)
+		"stop":
+			EventBus.button_pressed.emit("stop_command", player_id)
+		"guard":
+			EventBus.button_pressed.emit("guard_command", player_id)
+		"build":
+			if hud and hud.has_signal("build_menu_requested"):
+				hud.build_menu_requested.emit()
+		"gather_wood", "gather_food", "gather_stone", "gather_gold":
+			var unit_id: int = params.get("unit_id", -1)
+			if unit_id != -1:
+				EventBus.villager_assigned.emit(unit_id, -1, command)
+			EventBus.button_pressed.emit(command, player_id)
+		"garrison":
+			EventBus.button_pressed.emit("garrison_command", player_id)
+		"repair":
+			EventBus.button_pressed.emit("repair_command", player_id)
+		"cancel_construction":
+			EventBus.button_pressed.emit("cancel_construction", player_id)

@@ -23,12 +23,8 @@ var _is_paused: bool = false
 var _notification_tween: Tween = null
 var _resource_tweens: Dictionary = {}
 
-var _resource_icons: Dictionary = {
-	"wood": "🪵",
-	"stone": "🪨",
-	"food": "🍖",
-	"gold": "🪙",
-}
+var _resource_icons: Dictionary = {}
+var _resource_icon_textures: Dictionary = {}
 
 var _resource_colors: Dictionary = {
 	"wood": Color(0.55, 0.27, 0.07),
@@ -211,6 +207,8 @@ func _setup_resource_bar() -> void:
 	_resource_labels.clear()
 	_resource_panels.clear()
 
+	_generate_resource_icons()
+
 	var resource_types: Array[String] = ["wood", "stone", "food", "gold"]
 	for res_type: String in resource_types:
 		var panel: PanelContainer = PanelContainer.new()
@@ -232,11 +230,13 @@ func _setup_resource_bar() -> void:
 		container.name = res_type.capitalize() + "Container"
 		container.add_theme_constant_override("separation", 4)
 
-		var icon_label: Label = Label.new()
-		icon_label.name = "Icon"
-		icon_label.text = _resource_icons.get(res_type, "?")
-		icon_label.add_theme_font_size_override("font_size", 18)
-		container.add_child(icon_label)
+		var icon_tex: TextureRect = TextureRect.new()
+		icon_tex.name = "Icon"
+		icon_tex.custom_minimum_size = Vector2(16, 16)
+		icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		if res_type in _resource_icon_textures:
+			icon_tex.texture = _resource_icon_textures[res_type]
+		container.add_child(icon_tex)
 
 		var amount_label: Label = Label.new()
 		amount_label.name = "Amount"
@@ -265,6 +265,131 @@ func _setup_notification() -> void:
 		return
 	notification_label.visible = false
 	notification_label.z_index = 10
+
+
+func _generate_resource_icons() -> void:
+	if not _resource_icon_textures.is_empty():
+		return
+	_resource_icon_textures["wood"] = _draw_wood_icon()
+	_resource_icon_textures["stone"] = _draw_stone_icon()
+	_resource_icon_textures["food"] = _draw_food_icon()
+	_resource_icon_textures["gold"] = _draw_gold_icon()
+
+
+func _draw_wood_icon() -> ImageTexture:
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color.TRANSPARENT)
+	var trunk: Color = Color(0.45, 0.25, 0.08)
+	var leaves: Color = Color(0.15, 0.55, 0.12)
+	var leaves2: Color = Color(0.2, 0.65, 0.15)
+	for y in range(8, 14):
+		img.set_pixel(7, y, trunk)
+		img.set_pixel(8, y, trunk)
+	for y in range(4, 9):
+		for x in range(4, 12):
+			if y < 5 and (x < 5 or x > 10):
+				continue
+			if y < 7 and (x < 3 or x > 12):
+				continue
+			img.set_pixel(x, y, leaves2 if (x + y) % 3 == 0 else leaves)
+	return ImageTexture.create_from_image(img)
+
+
+func _draw_stone_icon() -> ImageTexture:
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color.TRANSPARENT)
+	var stone: Color = Color(0.55, 0.55, 0.58)
+	var stone_light: Color = Color(0.68, 0.68, 0.7)
+	var stone_dark: Color = Color(0.4, 0.4, 0.42)
+	var points: Array[Vector2i] = [
+		Vector2i(4, 10), Vector2i(3, 8), Vector2i(4, 5),
+		Vector2i(6, 3), Vector2i(9, 3), Vector2i(11, 5),
+		Vector2i(12, 8), Vector2i(11, 10), Vector2i(8, 12),
+		Vector2i(5, 11),
+	]
+	for y in range(16):
+		for x in range(16):
+			if _point_in_polygon(Vector2i(x, y), points):
+				img.set_pixel(x, y, stone)
+	for y in range(5, 8):
+		for x in range(5, 10):
+			if _point_in_polygon(Vector2i(x, y), points):
+				img.set_pixel(x, y, stone_light)
+	for y in range(9, 12):
+		for x in range(4, 12):
+			if _point_in_polygon(Vector2i(x, y), points):
+				img.set_pixel(x, y, stone_dark)
+	return ImageTexture.create_from_image(img)
+
+
+func _draw_food_icon() -> ImageTexture:
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color.TRANSPARENT)
+	var meat: Color = Color(0.75, 0.25, 0.1)
+	var meat_light: Color = Color(0.88, 0.35, 0.15)
+	var bone: Color = Color(0.92, 0.88, 0.78)
+	for y in range(6, 13):
+		for x in range(3, 11):
+			var dx: float = x - 7.0
+			var dy: float = y - 9.0
+			if dx * dx / 16.0 + dy * dy / 9.0 <= 1.0:
+				img.set_pixel(x, y, meat_light if y < 9 else meat)
+	img.set_pixel(11, 7, bone)
+	img.set_pixel(12, 7, bone)
+	img.set_pixel(12, 8, bone)
+	img.set_pixel(13, 8, bone)
+	img.set_pixel(13, 9, bone)
+	img.set_pixel(12, 9, bone)
+	img.set_pixel(12, 10, bone)
+	img.set_pixel(11, 10, bone)
+	img.set_pixel(2, 8, bone)
+	img.set_pixel(1, 8, bone)
+	img.set_pixel(1, 9, bone)
+	img.set_pixel(2, 9, bone)
+	return ImageTexture.create_from_image(img)
+
+
+func _draw_gold_icon() -> ImageTexture:
+	var img: Image = Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	img.fill(Color.TRANSPARENT)
+	var gold: Color = Color(1.0, 0.82, 0.0)
+	var gold_dark: Color = Color(0.85, 0.65, 0.0)
+	var gold_light: Color = Color(1.0, 0.92, 0.3)
+	for y in range(16):
+		for x in range(16):
+			var dx: float = x - 7.5
+			var dy: float = y - 7.5
+			if dx * dx + dy * dy <= 49.0:
+				img.set_pixel(x, y, gold)
+	for y in range(16):
+		for x in range(16):
+			var dx: float = x - 7.5
+			var dy: float = y - 7.5
+			if dx * dx + dy * dy <= 25.0 and dx * dx + dy * dy > 16.0:
+				img.set_pixel(x, y, gold_dark)
+			elif dx * dx + dy * dy <= 16.0:
+				img.set_pixel(x, y, gold_light)
+	for y in range(5, 10):
+		img.set_pixel(7, y, gold_dark)
+		img.set_pixel(8, y, gold_dark)
+	for x in range(5, 10):
+		img.set_pixel(x, 7, gold_dark)
+		img.set_pixel(x, 8, gold_dark)
+	return ImageTexture.create_from_image(img)
+
+
+func _point_in_polygon(point: Vector2i, polygon: Array[Vector2i]) -> bool:
+	var inside: bool = false
+	var n: int = polygon.size()
+	var j: int = n - 1
+	for i in range(n):
+		var pi: Vector2i = polygon[i]
+		var pj: Vector2i = polygon[j]
+		if ((pi.y > point.y) != (pj.y > point.y)) and \
+			(point.x < (pj.x - pi.x) * (point.y - pi.y) / float(pj.y - pi.y) + pi.x):
+			inside = not inside
+		j = i
+	return inside
 
 
 func update_resources() -> void:
