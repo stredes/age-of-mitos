@@ -1,5 +1,5 @@
 {
-  "town_center": {
+"town_center": {
     "display_name": "Centro Urbano",
     "hp": 2500,
     "size": {"x": 3, "y": 3},
@@ -15,7 +15,8 @@
     "attack": 0,
     "range": 0,
     "attack_speed": 0,
-    "description": "Edificio principal. Produce unidades civiles y alberga población."
+    "drop_off_types": ["wood", "stone", "food", "gold"],
+    "description": "Edificio principal. Produce unidades civiles y alberga población. Punto de entrega universal."
   },
   "house": {
     "display_name": "Casa",
@@ -51,6 +52,7 @@
     "attack": 0,
     "range": 0,
     "attack_speed": 0,
+    "drop_off_types": ["wood"],
     "description": "Punto de recolección de madera. Desbloquea mejoras de tala."
   },
   "mine": {
@@ -69,6 +71,7 @@
     "attack": 0,
     "range": 0,
     "attack_speed": 0,
+    "drop_off_types": ["stone", "gold"],
     "description": "Punto de recolección de minerales. Desbloquea mejoras de minería."
   },
   "mill": {
@@ -87,6 +90,7 @@
     "attack": 0,
     "range": 0,
     "attack_speed": 0,
+    "drop_off_types": ["food"],
     "description": "Punto de recolección de comida. Desbloquea mejoras agrícolas."
   },
   "barracks": {

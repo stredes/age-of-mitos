@@ -67,6 +67,13 @@ signal unit_died(unit_id: int, killer_id: int, player_id: int)
 ## [param position: Vector2] Spawn position in world coordinates.
 signal unit_spawned(unit_id: int, unit_type: String, player_id: int, position: Vector2)
 
+## Emitted when a unit changes state (idle, move, attack, harvest, build, etc.).
+## [param unit_id: int] The unit that changed state.
+## [param player_id: int] The owning player.
+## [param old_state: String] The previous state.
+## [param new_state: String] The new state.
+signal unit_state_changed(unit_id: int, player_id: int, old_state: String, new_state: String)
+
 # =============================================================================
 # Building Signals
 # =============================================================================
@@ -224,6 +231,18 @@ signal villager_unassigned(villager_id: int, previous_target_id: int)
 ## [param resource_type: String] The resource being dropped off.
 ## [param amount: int] The amount dropped off.
 signal resource_drop_off(villager_id: int, drop_off_id: int, resource_type: String, amount: int)
+
+## Emitted when a villager becomes idle (no activity for IDLE_DETECTION_INTERVAL).
+## [param villager_id: int] The idle villager.
+## [param player_id: int] The owning player.
+signal villager_idle_detected(villager_id: int, player_id: int)
+
+## Emitted when an auto drop-off is completed.
+## [param villager_id: int] The villager that dropped off.
+## [param drop_off_building_id: int] The building that received resources.
+## [param resource_type: String] The resource type.
+## [param amount: int] The amount dropped off.
+signal auto_drop_off_completed(villager_id: int, drop_off_building_id: int, resource_type: String, amount: int)
 
 # =============================================================================
 # Construction Signals

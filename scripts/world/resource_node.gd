@@ -210,6 +210,59 @@ func is_in_range(world_position: Vector2) -> bool:
 	return position.distance_to(world_position) <= interaction_radius
 
 
+## Find the nearest drop-off building for a given resource type and player.
+## Returns the nearest building that can accept this resource type.
+## [param resource_type: String] The type of resource to drop off.
+## [param player_id: int] The player ID to find buildings for.
+## [return] Node2D or null if no valid drop-off building found.
+func find_nearest_drop_off(resource_type: String, player_id: int) -> Node2D:
+	var drop_off_types: Array[String] = []
+	match resource_type:
+		"wood":
+			drop_off_types = ["lumber_camp", "town_center"]
+		"stone", "gold":
+			drop_off_types = ["mine", "town_center"]
+		"food":
+			drop_off_types = ["mill", "town_center"]
+		_:
+			drop_off_types = ["town_center"]
+
+	var best: Node2D = null
+	var best_dist: float = INF
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return null
+
+	var candidates: Array[Node] = []
+	_find_drop_off_buildings_recursive(scene, candidates, drop_off_types, player_id)
+
+	for node: Node in candidates:
+		if node is Node2D:
+			var bld: Node2D = node as Node2D
+			var dist: float = position.distance_to(bld.global_position)
+			if dist < best_dist:
+				best_dist = dist
+				best = bld
+
+	return best
+
+
+func _find_drop_off_buildings_recursive(node: Node, results: Array[Node], building_types: Array[String], player_id: int) -> void:
+	var node_building_type: String = ""
+	if node.has_method("get_building_type"):
+		node_building_type = node.get_building_type()
+	elif node.get("building_type") != null:
+		node_building_type = node.get("building_type")
+
+	if node_building_type in building_types:
+		var bld_player: int = node.get("player_id") if node.has_method("get") and node.get("player_id") != null else -2
+		if bld_player == player_id or player_id == -1:
+			results.append(node)
+
+	for child: Node in node.get_children():
+		_find_drop_off_buildings_recursive(child, results, building_types, player_id)
+
+
 ## Set the node's world position from its grid position.
 ## [param cell_size: int] Pixels per grid cell (default 32).
 func update_world_position(cell_size: int = 32) -> void:
