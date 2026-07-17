@@ -13,11 +13,16 @@ extends PanelContainer
 var _title_label: Label = null
 var _desc_label: Label = null
 var _hide_tween: Tween = null
+var _show_timer: Timer = null
+var _pending_title: String = ""
+var _pending_desc: String = ""
+var _pending_pos: Vector2 = Vector2.ZERO
 
 const TITLE_FONT_SIZE: int = 14
 const DESC_FONT_SIZE: int = 12
 const MAX_WIDTH: int = 280
 const OFFSET: Vector2 = Vector2(8, 8)
+const SHOW_DELAY: float = 0.5
 
 
 func _ready() -> void:
@@ -25,6 +30,11 @@ func _ready() -> void:
 	z_index = 100
 	_build_ui()
 	visible = false
+	_show_timer = Timer.new()
+	_show_timer.one_shot = true
+	_show_timer.wait_time = SHOW_DELAY
+	_show_timer.timeout.connect(_on_show_timer_timeout)
+	add_child(_show_timer)
 
 
 func _build_ui() -> void:
@@ -66,6 +76,36 @@ func _build_ui() -> void:
 
 
 func show_tooltip(title: String, desc: String, pos: Vector2) -> void:
+	_pending_title = title
+	_pending_desc = desc
+	_pending_pos = pos
+
+	if _hide_tween and _hide_tween.is_valid():
+		_hide_tween.kill()
+
+	if _show_timer and not _show_timer.is_stopped():
+		_show_timer.stop()
+
+	if _show_timer:
+		_show_timer.start()
+
+
+func show_tooltip_immediate(title: String, desc: String, pos: Vector2) -> void:
+	_pending_title = title
+	_pending_desc = desc
+	_pending_pos = pos
+
+	if _hide_tween and _hide_tween.is_valid():
+		_hide_tween.kill()
+
+	_apply_tooltip_content(title, desc, pos)
+
+
+func _on_show_timer_timeout() -> void:
+	_apply_tooltip_content(_pending_title, _pending_desc, _pending_pos)
+
+
+func _apply_tooltip_content(title: String, desc: String, pos: Vector2) -> void:
 	if _title_label:
 		_title_label.text = title
 		_title_label.visible = title.length() > 0
@@ -76,15 +116,14 @@ func show_tooltip(title: String, desc: String, pos: Vector2) -> void:
 	visible = true
 	modulate.a = 1.0
 
-	if _hide_tween and _hide_tween.is_valid():
-		_hide_tween.kill()
-
-	# Defer position so size is calculated after text is set.
 	await get_tree().process_frame
 	_clamp_to_viewport(pos)
 
 
 func hide_tooltip() -> void:
+	if _show_timer and not _show_timer.is_stopped():
+		_show_timer.stop()
+
 	if visible:
 		_fade_out(0.12)
 

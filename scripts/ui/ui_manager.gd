@@ -6,6 +6,8 @@ var build_menu: Control = null
 var train_menu: Control = null
 var selection_panel: Control = null
 var command_card: Control = null
+var tooltip_system: PanelContainer = null
+var notification_system: Node = null
 var victory_screen: Control = null
 var tech_tree_panel: Control = null
 var diplomacy_panel: Control = null
@@ -25,6 +27,8 @@ func _find_ui_nodes() -> void:
 	train_menu = _find_node_recursive("/root/GameWorld/UILayer", "TrainMenu") as Control
 	selection_panel = _find_node_recursive("/root/GameWorld/UILayer", "SelectionPanel") as Control
 	command_card = _find_node_recursive("/root/GameWorld/UILayer", "CommandCard") as Control
+	tooltip_system = _find_node_recursive("/root/GameWorld/UILayer", "TooltipSystem") as PanelContainer
+	notification_system = _find_node_recursive("/root/GameWorld", "NotificationSystem")
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
@@ -36,6 +40,9 @@ func _find_ui_nodes() -> void:
 	if command_card and command_card.has_signal("command_issued"):
 		if not command_card.command_issued.is_connected(_on_command_issued):
 			command_card.command_issued.connect(_on_command_issued)
+
+	if tooltip_system and tooltip_system.has_method("add_to_group"):
+		tooltip_system.add_to_group("_tooltip_system")
 
 
 func _find_node_recursive(root_path: String, target_name: String) -> Node:
@@ -410,3 +417,23 @@ func _on_command_issued(command: String, params: Dictionary) -> void:
 			EventBus.button_pressed.emit("repair_command", player_id)
 		"cancel_construction":
 			EventBus.button_pressed.emit("cancel_construction", player_id)
+
+
+func notify_success(text: String) -> void:
+	if notification_system and notification_system.has_method("show_success"):
+		notification_system.show_success(text)
+
+
+func notify_error(text: String) -> void:
+	if notification_system and notification_system.has_method("show_error"):
+		notification_system.show_error(text)
+
+
+func notify_warning(text: String) -> void:
+	if notification_system and notification_system.has_method("show_warning"):
+		notification_system.show_warning(text)
+
+
+func notify_info(text: String) -> void:
+	if notification_system and notification_system.has_method("show_info"):
+		notification_system.show_info(text)
