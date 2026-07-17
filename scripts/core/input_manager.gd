@@ -290,17 +290,30 @@ func _handle_right_click(world_pos: Vector2) -> void:
 		_show_destination_marker(world_pos)
 
 		var target_resource: Node2D = _find_resource_at_position(world_pos)
+		var target_building: Node2D = _find_construction_at_position(world_pos)
 		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
 		var unit_index: int = 0
 		for unit_id: int in selected_unit_ids:
 			var unit: Node2D = _find_unit_by_id(unit_id)
 			if unit == null:
 				continue
-			if target_resource != null:
+
+			var is_villager: bool = false
+			if unit.has_method("get") and unit.get("unit_type") != null:
+				is_villager = unit.get("unit_type") == "villager"
+
+			if target_resource != null and is_villager:
+				# Only villagers harvest resources.
 				unit.set("pending_target_resource", target_resource)
 				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 				if state_machine != null and state_machine.has_method("change_state"):
 					state_machine.change_state("HarvestState")
+			elif target_building != null and target_building.get("is_constructed") == false and is_villager:
+				# Villagers sent to unfinished building will construct it.
+				unit.set("pending_target_building", target_building)
+				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+				if state_machine != null and state_machine.has_method("change_state"):
+					state_machine.change_state("BuildState")
 			else:
 				var move_target: Vector2 = formation_targets.get(unit_index, world_pos)
 				unit.set("pending_move_position", move_target)
@@ -584,6 +597,26 @@ func _find_resource_at_position(world_pos: Vector2) -> Node2D:
 	if root == null:
 		root = get_tree().root
 	return _find_resource_recursive(root, world_pos, best, best_dist_sq)
+
+
+func _find_construction_at_position(world_pos: Vector2) -> Node2D:
+	var best: Node2D = null
+	var best_dist_sq: float = 64.0 * 64.0
+	var bm: Node = _find_building_manager()
+	if bm == null or not bm.has_method("get"):
+		return null
+	var buildings_dict: Dictionary = bm.get("buildings") if bm.get("buildings") != null else {}
+	for id_variant: Variant in buildings_dict:
+		var node: Node2D = buildings_dict[id_variant]
+		if not is_instance_valid(node):
+			continue
+		if node.get("is_constructed") == true:
+			continue
+		var dist_sq: float = node.global_position.distance_squared_to(world_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best = node
+	return best
 
 
 func _find_resource_recursive(node: Node, world_pos: Vector2, best: Node2D, best_dist_sq: float) -> Node2D:

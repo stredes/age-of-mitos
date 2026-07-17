@@ -66,11 +66,15 @@ func _check_pending_commands() -> void:
 	if unit == null:
 		return
 
-	if unit.pending_target_resource != null:
+	var is_villager: bool = false
+	if unit.has_method("get") and unit.get("unit_type") != null:
+		is_villager = unit.get("unit_type") == "villager"
+
+	if unit.pending_target_resource != null and is_villager:
 		state_machine.change_state("HarvestState")
 		return
 
-	if unit.pending_target_building != null:
+	if unit.pending_target_building != null and is_villager:
 		state_machine.change_state("BuildState")
 		return
 

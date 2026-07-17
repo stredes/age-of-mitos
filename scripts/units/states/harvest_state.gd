@@ -13,6 +13,9 @@ var phase: Phase = Phase.GO_TO_RESOURCE
 var resource_node: Node2D = null
 var _drop_off_building: Node2D = null
 
+const RESOURCE_RANGE: float = 40.0
+const DROP_OFF_RANGE: float = 48.0
+
 
 func enter() -> void:
 	phase = Phase.GO_TO_RESOURCE
@@ -57,23 +60,19 @@ func update(delta: float) -> void:
 
 	match phase:
 		Phase.GO_TO_RESOURCE:
+			var in_range: bool = false
 			if resource_node.has_method("is_in_range"):
-				if resource_node.is_in_range(unit.global_position):
-					if move_comp != null and move_comp.is_moving:
-						move_comp.stop()
-					phase = Phase.GATHERING
-					_play_gather_anim()
-				elif move_comp != null and not move_comp.is_moving:
-					_move_to_resource()
+				in_range = resource_node.is_in_range(unit.global_position)
 			else:
-				var dist: float = unit.global_position.distance_to(resource_node.global_position)
-				if dist < 40.0:
-					if move_comp != null and move_comp.is_moving:
-						move_comp.stop()
-					phase = Phase.GATHERING
-					_play_gather_anim()
-				elif move_comp != null and not move_comp.is_moving:
-					_move_to_resource()
+				in_range = unit.global_position.distance_to(resource_node.global_position) < RESOURCE_RANGE
+
+			if in_range:
+				if move_comp != null and move_comp.is_moving:
+					move_comp.stop()
+				phase = Phase.GATHERING
+				_play_gather_anim()
+			elif move_comp != null and not move_comp.is_moving:
+				_move_to_resource()
 
 		Phase.GATHERING:
 			harvest_comp.harvest(delta)
@@ -133,8 +132,7 @@ func _move_to_resource() -> void:
 
 	var anim: Node = _get_anim_controller()
 	if anim != null and anim.has_method("play_state"):
-		var dir: Vector2 = (resource_node.global_position - unit.global_position).normalized()
-		anim.play_state("walk", dir)
+		anim.play_state("walk")
 
 
 func _move_to_drop_off() -> void:
@@ -154,15 +152,32 @@ func _move_to_drop_off() -> void:
 	if move_comp != null:
 		move_comp.move_to(_drop_off_building.global_position)
 
+	_update_carry_visual(true)
+
 	var anim: Node = _get_anim_controller()
 	if anim != null and anim.has_method("play_state"):
-		var dir: Vector2 = (_drop_off_building.global_position - unit.global_position).normalized()
-		anim.play_state("walk", dir)
+		anim.play_state("walk")
 
 
 func _switch_to_return(harvest_comp: Node) -> void:
 	phase = Phase.GO_TO_DROP_OFF
+	_update_carry_visual(true)
 	_move_to_drop_off()
+
+
+func _update_carry_visual(show_carry: bool) -> void:
+	if unit == null:
+		return
+	var harvest_comp: Node = unit.get_node_or_null("HarvestComponent")
+	if harvest_comp == null:
+		return
+
+	var resource_type: String = harvest_comp.get("carry_resource_type") if harvest_comp.get("carry_resource_type") != null else ""
+	var carry_amount: int = int(harvest_comp.get("current_carry")) if harvest_comp.get("current_carry") != null else 0
+
+	var anim: Node = _get_anim_controller()
+	if anim != null and anim.has_method("set_carry"):
+		anim.set_carry(show_carry and carry_amount > 0, resource_type)
 
 
 func _play_gather_anim() -> void:

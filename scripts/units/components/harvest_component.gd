@@ -128,6 +128,7 @@ func find_nearest_drop_off() -> Node2D:
 	var player_id: int = _parent_unit.get("player_id") if _parent_unit.has_method("get") and _parent_unit.get("player_id") != null else -1
 	var best: Node2D = null
 	var best_dist: float = INF
+	var best_priority: int = 0
 	var scene: Node = get_tree().current_scene
 	if scene == null:
 		return null
@@ -135,14 +136,31 @@ func find_nearest_drop_off() -> Node2D:
 	var candidates: Array[Node] = []
 	_find_buildings_recursive(scene, candidates)
 
+	# Prefer specialized drop-offs based on resource type.
+	# Priority: 3 = specialized, 2 = town_center, 1 = any other
 	for node: Node in candidates:
 		if node is Node2D:
 			var bld: Node2D = node as Node2D
+			if not is_instance_valid(bld):
+				continue
 			var bld_player: int = bld.get("player_id") if bld.has_method("get") and bld.get("player_id") != null else -2
 			if bld_player != player_id and player_id != -1:
 				continue
+			if bld.get("is_constructed") == false:
+				continue
+
+			var bld_type: String = bld.get("building_type") if bld.has_method("get") and bld.get("building_type") != null else ""
+			var priority: int = 1
+			if bld_type == "town_center":
+				priority = 2
+			elif carry_resource_type == "wood" and bld_type == "lumber_camp":
+				priority = 3
+			elif carry_resource_type in ["stone", "gold"] and bld_type == "mining_camp":
+				priority = 3
+
 			var dist: float = _parent_unit.global_position.distance_to(bld.global_position)
-			if dist < best_dist:
+			if priority > best_priority or (priority == best_priority and dist < best_dist):
+				best_priority = priority
 				best_dist = dist
 				best = bld
 
