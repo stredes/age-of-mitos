@@ -16,6 +16,7 @@ var population_display: PanelContainer = null
 var quick_action_bar: HBoxContainer = null
 var unit_portrait: PanelContainer = null
 var stance_button: Button = null
+var error_display: Node = null
 var _pause_menu: Control = null
 var _open_menu: String = ""
 
@@ -39,6 +40,7 @@ func _find_ui_nodes() -> void:
 	quick_action_bar = _find_node_recursive("/root/GameWorld/UILayer", "QuickActionBar") as HBoxContainer
 	unit_portrait = _find_node_recursive("/root/GameWorld/UILayer", "UnitPortrait") as PanelContainer
 	stance_button = _find_node_recursive("/root/GameWorld/UILayer", "StanceButton") as Button
+	error_display = _find_node_recursive("/root/GameWorld", "ErrorDisplay")
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
@@ -472,8 +474,17 @@ func notify_success(text: String) -> void:
 
 
 func notify_error(text: String) -> void:
-	if notification_system and notification_system.has_method("show_error"):
+	if error_display and error_display.has_method("show_error_simple"):
+		error_display.show_error_simple(text)
+	elif notification_system and notification_system.has_method("show_error"):
 		notification_system.show_error(text)
+
+
+func notify_error_full(title: String, message: String, detail: String = "") -> void:
+	if error_display and error_display.has_method("show_error"):
+		error_display.show_error(title, message, detail)
+	elif notification_system and notification_system.has_method("show_error"):
+		notification_system.show_error(message)
 
 
 func notify_warning(text: String) -> void:
