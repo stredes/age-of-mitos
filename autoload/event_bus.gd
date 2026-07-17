@@ -119,6 +119,14 @@ signal selection_ended(start_position: Vector2, end_position: Vector2, selected_
 ## [param selected_building_ids: Array] All currently selected building IDs.
 signal selection_changed(selected_unit_ids: Array, selected_building_ids: Array)
 
+## Emitted when a unit command is requested from UI/input.
+## [param command_data: Dictionary] Command data with command_type, target, shift_held.
+signal unit_command_requested(command_data: Dictionary)
+
+## Emitted when a building command is requested from UI/input.
+## [param command_data: Dictionary] Command data with command_type, target, shift_held.
+signal building_command_requested(command_data: Dictionary)
+
 # =============================================================================
 # Camera Signals
 # =============================================================================
@@ -179,6 +187,21 @@ signal unit_killed(victim_id: int, killer_id: int, victim_player_id: int)
 ## [param origin: Vector2] World position the projectile was fired from.
 ## [param damage: int] Damage the projectile will deal on impact.
 signal projectile_fired(projectile_id: int, attacker_id: int, target_id: int, origin: Vector2, damage: int)
+
+# =============================================================================
+# Command Signals
+# =============================================================================
+
+## Emitted when the player requests a unit command.
+## [param command_data: Dictionary] Contains command_type, target, shift_held.
+signal unit_command_requested(command_data: Dictionary)
+
+## Emitted when the player requests a building command.
+## [param command_data: Dictionary] Contains command_type, target, shift_held.
+signal building_command_requested(command_data: Dictionary)
+
+## Emitted when selection is cleared.
+signal selection_cleared()
 
 # =============================================================================
 # Economy Signals

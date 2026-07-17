@@ -52,6 +52,7 @@ var unit_manager: UnitManager = null
 var building_manager: BuildingManager = null
 var resource_manager: ResourceManager = null
 var selection_manager: SelectionManager = null
+var command_manager: CommandManager = null
 var combat_manager: Node = null
 var technology_tree: Node = null
 var save_manager: Node = null
@@ -149,6 +150,11 @@ func _create_system_nodes() -> void:
 	selection_manager = SelectionManager.new()
 	selection_manager.name = "SelectionManager"
 	add_child(selection_manager)
+
+	# Command system.
+	command_manager = CommandManager.new()
+	command_manager.name = "CommandManager"
+	add_child(command_manager)
 
 	# Combat.
 	combat_manager = Node.new()
@@ -560,6 +566,14 @@ func _on_button_pressed(button_name: String, player_id: int) -> void:
 			_assign_selected_units_to_resource("stone")
 		"gather_gold":
 			_assign_selected_units_to_resource("gold")
+		"attack_command":
+			_attack_selected_units()
+		"attack_move_command":
+			_attack_move_selected_units()
+		"hold_position_command":
+			_hold_position_selected_units()
+		"patrol_command":
+			_patrol_selected_units()
 		"cant_afford", "missing_prereq":
 			if camera_controller:
 				camera_controller.shake(1.4, 0.08)
@@ -645,9 +659,139 @@ func _train_from_selected_building(unit_type: String) -> void:
 		particle_effects.spawnEffect("build_construct", (building as Node2D).global_position + Vector2(0, -12), 4)
 
 
-func _on_weather_wind_changed(strength: float, _direction: Vector2) -> void:
-	if decorative_world:
-		decorative_world.set_ambient_intensity(clampf(0.65 + strength * 0.45, 0.4, 1.0))
+func _issue_attack_move(target_pos: Vector2) -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("pending_attack_move_position", target_pos)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackMoveState")
+
+
+func _issue_patrol(point_a: Vector2, point_b: Vector2) -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("patrol_point_a", point_a)
+		unit.set("patrol_point_b", point_b)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("PatrolState")
+
+
+func _issue_hold_position() -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("hold_position", unit.global_position)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("HoldPositionState")
+
+
+func _issue_repair(target_id: int) -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		if unit.get("unit_type") != "villager":
+			continue
+		unit.set("pending_repair_target", target_id)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("RepairState")
+
+
+func _attack_selected_units() -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	var target_id: int = _find_unit_under_mouse()
+	if target_id == -1:
+		target_id = _find_building_under_mouse()
+	if target_id == -1:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("pending_attack_target", target_id)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackState")
+
+
+func _attack_move_selected_units() -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	var target_pos: Vector2 = input_manager.mouse_world_position
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("pending_attack_move_position", target_pos)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackMoveState")
+
+
+func _hold_position_selected_units() -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("hold_position", unit.global_position)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("HoldPositionState")
+
+
+func _patrol_selected_units() -> void:
+	if selection_manager == null or unit_manager == null:
+		return
+	var mp: Vector2 = input_manager.mouse_world_position
+	var point_a: Vector2 = mp
+	var point_b: Vector2 = mp + Vector2(200, 0)
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		unit.set("patrol_point_a", point_a)
+		unit.set("patrol_point_b", point_b)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("PatrolState")
+
+
+func _find_unit_under_mouse() -> int:
+	if unit_manager == null or input_manager == null:
+		return -1
+	var mouse_pos: Vector2 = input_manager.mouse_world_position
+	var units: Array = unit_manager.get_player_units(GameManager.get_local_player_id())
+	var best_id: int = -1
+	var best_dist_sq: float = 32.0 * 32.0
+	for unit: Node2D in units:
+		if not is_instance_valid(unit):
+			continue
+		var dist_sq: float = unit.global_position.distance_squared_to(mouse_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_id = unit.get("unit_id")
+	return best_id
+
 
 # =============================================================================
 # Utility
@@ -683,6 +827,23 @@ func _find_nearest_buildable(building_type: String, cell: Vector2i, max_radius: 
 					return check
 
 	return Vector2i(-1, -1)
+
+
+func _find_building_under_mouse() -> int:
+	if building_manager == null or input_manager == null:
+		return -1
+	var mouse_pos: Vector2 = input_manager.mouse_world_position
+	var buildings: Array = building_manager.get_player_buildings(GameManager.get_local_player_id())
+	var best_id: int = -1
+	var best_dist_sq: float = 64.0 * 64.0
+	for bld: Node2D in buildings:
+		if not is_instance_valid(bld):
+			continue
+		var dist_sq: float = bld.global_position.distance_squared_to(mouse_pos)
+		if dist_sq < best_dist_sq:
+			best_dist_sq = dist_sq
+			best_id = bld.get("building_id")
+	return best_id
 
 
 func get_world_data() -> WorldData:

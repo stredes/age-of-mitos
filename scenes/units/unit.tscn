@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=22 format=3]
 
 [ext_resource type="Script" path="res://scripts/units/unit_base.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/units/unit_state_machine.gd" id="2"]
@@ -8,12 +8,17 @@
 [ext_resource type="Script" path="res://scripts/units/states/harvest_state.gd" id="6"]
 [ext_resource type="Script" path="res://scripts/units/states/build_state.gd" id="7"]
 [ext_resource type="Script" path="res://scripts/units/states/dead_state.gd" id="8"]
-[ext_resource type="Script" path="res://scripts/units/components/health_component.gd" id="9"]
-[ext_resource type="Script" path="res://scripts/units/components/movement_component.gd" id="10"]
-[ext_resource type="Script" path="res://scripts/units/components/combat_component.gd" id="11"]
-[ext_resource type="Script" path="res://scripts/units/components/harvest_component.gd" id="12"]
-[ext_resource type="Script" path="res://scripts/units/components/selection_component.gd" id="13"]
-[ext_resource type="Script" path="res://scripts/animation/unit_animation_controller.gd" id="14"]
+[ext_resource type="Script" path="res://scripts/units/states/attack_move_state.gd" id="9"]
+[ext_resource type="Script" path="res://scripts/units/states/patrol_state.gd" id="10"]
+[ext_resource type="Script" path="res://scripts/units/states/hold_state.gd" id="11"]
+[ext_resource type="Script" path="res://scripts/units/states/repair_state.gd" id="12"]
+[ext_resource type="Script" path="res://scripts/units/states/return_resource_state.gd" id="13"]
+[ext_resource type="Script" path="res://scripts/units/components/health_component.gd" id="14"]
+[ext_resource type="Script" path="res://scripts/units/components/movement_component.gd" id="15"]
+[ext_resource type="Script" path="res://scripts/units/components/combat_component.gd" id="16"]
+[ext_resource type="Script" path="res://scripts/units/components/harvest_component.gd" id="17"]
+[ext_resource type="Script" path="res://scripts/units/components/selection_component.gd" id="18"]
+[ext_resource type="Script" path="res://scripts/animation/unit_animation_controller.gd" id="19"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_1"]
 radius = 8.0
@@ -49,6 +54,21 @@ script = ExtResource("7")
 
 [node name="DeadState" type="Node" parent="UnitStateMachine"]
 script = ExtResource("8")
+
+[node name="AttackMoveState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("9")
+
+[node name="PatrolState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("10")
+
+[node name="HoldPositionState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("11")
+
+[node name="RepairState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("12")
+
+[node name="ReturnResourceState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("13")
 
 [node name="HealthComponent" type="Node" parent="."]
 script = ExtResource("9")

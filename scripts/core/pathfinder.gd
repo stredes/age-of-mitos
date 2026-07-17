@@ -21,6 +21,12 @@ extends Node
 ## paths to stay away from walls (useful for larger units).
 @export var adjacent_wall_penalty: float = 0.0
 
+## Minimum distance a target must move before triggering a path recalculation.
+@export var recalc_threshold: float = 64.0
+
+## Maximum time between forced recalculations (0 = no forced recalc).
+@export var max_recalc_interval: float = 5.0
+
 # =============================================================================
 # Signals
 # =============================================================================
@@ -51,13 +57,21 @@ var _initialized: bool = false
 ## Key: Vector2i, Value: true. These are cleared on rebuild.
 var _temporarily_blocked: Dictionary = {}
 
+## Cache of last requested paths to avoid recalculating identical requests.
+var _path_cache: Dictionary = {}
+
+## Maximum path cache size.
+const MAX_PATH_CACHE: int = 128
+
+## Time since last full recalculation.
+var _time_since_recalc: float = 0.0
+
 # =============================================================================
 # Lifecycle
 # =============================================================================
 
 func _ready() -> void:
 	_astar = AStarGrid2D.new()
-	# Defer initialization to allow the scene tree to settle.
 	call_deferred("_initialize")
 
 
@@ -80,11 +94,19 @@ func _initialize() -> void:
 	_mark_walkable_cells()
 	_initialized = true
 
-	# Listen for grid changes to rebuild pathfinding data.
 	if _grid_manager.has_signal("grid_changed"):
 		_grid_manager.grid_changed.connect(_on_grid_changed)
 
 	pathfinder_rebuilt.emit()
+
+
+func _process(delta: float) -> void:
+	if max_recalc_interval > 0.0:
+		_time_since_recalc += delta
+		if _time_since_recalc >= max_recalc_interval:
+			_time_since_recalc = 0.0
+			refresh_changed_cells()
+
 
 # =============================================================================
 # Grid Building
@@ -129,17 +151,18 @@ func rebuild() -> void:
 
 	_mark_walkable_cells()
 
-	# Re-apply temporary blocks.
 	for cell: Vector2i in _temporarily_blocked:
 		if _is_in_bounds(cell):
 			_astar.set_point_solid(cell, true)
 
+	_path_cache.clear()
 	_initialized = true
+	_time_since_recalc = 0.0
 	pathfinder_rebuilt.emit()
 
 
-## Refresh the pathfinder incrementally — only update cells that changed.
-## Faster than a full rebuild for small changes (single building placed).
+## Refresh only cells that changed — call from GridManager.grid_changed with specific cells.
+## Faster than full rebuild for small changes.
 func refresh_cell(cell: Vector2i) -> void:
 	if not _initialized or _grid_manager == null:
 		return
@@ -147,6 +170,24 @@ func refresh_cell(cell: Vector2i) -> void:
 		return
 	var is_solid: bool = not _grid_manager.is_walkable(cell) or _temporarily_blocked.has(cell)
 	_astar.set_point_solid(cell, is_solid)
+	_path_cache.erase(_get_cache_key(cell, Vector2i(-1, -1)))
+
+
+func refresh_changed_cells(changed_cells: Array[Vector2i] = []) -> void:
+	if not _initialized or _grid_manager == null:
+		return
+
+	if changed_cells.is_empty():
+		rebuild()
+		return
+
+	for cell: Vector2i in changed_cells:
+		if _is_in_bounds(cell):
+			var is_solid: bool = not _grid_manager.is_walkable(cell) or _temporarily_blocked.has(cell)
+			_astar.set_point_solid(cell, is_solid)
+
+	_path_cache.clear()
+
 
 # =============================================================================
 # Pathfinding
@@ -162,7 +203,10 @@ func find_path(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
 	if not _is_in_bounds(start_cell) or not _is_in_bounds(end_cell):
 		return []
 
-	# If start or end is solid, try to find the nearest walkable cell.
+	var cache_key: String = _get_cache_key(start_cell, end_cell)
+	if _path_cache.has(cache_key):
+		return _path_cache[cache_key].duplicate()
+
 	if _astar.is_point_solid(start_cell):
 		start_cell = _get_nearest_walkable(start_cell)
 		if start_cell == Vector2i(-1, -1):
@@ -180,6 +224,11 @@ func find_path(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	for point: Vector2 in path:
 		result.append(Vector2i(int(point.x), int(point.y)))
+
+	if _path_cache.size() >= MAX_PATH_CACHE:
+		var first_key := _path_cache.keys()[0]
+		_path_cache.erase(first_key)
+	_path_cache[cache_key] = result.duplicate()
 	return result
 
 
@@ -199,14 +248,19 @@ func find_path_world(start_pos: Vector2, end_pos: Vector2) -> Array[Vector2]:
 func find_path_for_movement(start_pos: Vector2, end_pos: Vector2) -> Array[Vector2]:
 	var world_path: Array[Vector2] = find_path_world(start_pos, end_pos)
 	if world_path.size() > 0:
-		world_path.pop_front()  # Remove the start position (unit is already there).
+		world_path.pop_front()
 	return world_path
 
+
+func _get_cache_key(start: Vector2i, end: Vector2i) -> String:
+	return "%d,%d:%d,%d" % [start.x, start.y, end.x, end.y]
+
+
 # =============================================================================
-# Path Validation
+# Path Validation & Recalculation
 # =============================================================================
 
-## Check whether a path is valid (non-empty and all points are walkable).
+## Check whether a path is still valid (non-empty and all points walkable).
 func is_valid_path(path: Array[Vector2i]) -> bool:
 	if path.is_empty():
 		return false
@@ -221,18 +275,27 @@ func is_valid_path(path: Array[Vector2i]) -> bool:
 ## Check whether a direct path (no intermediate points) exists between two cells.
 func has_direct_path(start_cell: Vector2i, end_cell: Vector2i) -> bool:
 	var path: Array[Vector2i] = find_path(start_cell, end_cell)
-	return path.size() == 2  # Start + End only = straight line.
+	return path.size() == 2
+
+
+## Check if a path needs recalculation based on target movement.
+## Returns true if the target has moved beyond recalc_threshold.
+func needs_recalculation(original_target: Vector2, current_target: Vector2) -> bool:
+	if recalc_threshold <= 0.0:
+		return false
+	return original_target.distance_to(current_target) > recalc_threshold
+
 
 # =============================================================================
 # Utility
 # =============================================================================
 
 ## Find the furthest walkable cell in the direction from `from` to `to`,
-## up to max_distance cells. Useful for when a unit can't reach its exact
+## up to max_distance cells. Useful when a unit can't reach its exact
 ## destination but should move as close as possible.
 func get_furthest_walkable(from: Vector2i, to: Vector2i, max_distance: int = -1) -> Vector2i:
 	if max_distance <= 0:
-		max_distance = _grid_size.x + _grid_size.y  # Effectively unlimited.
+		max_distance = _grid_size.x + _grid_size.y
 
 	var direction: Vector2 = Vector2(to - from)
 	var dist: float = direction.length()
@@ -243,10 +306,8 @@ func get_furthest_walkable(from: Vector2i, to: Vector2i, max_distance: int = -1)
 	var best: Vector2i = from
 	var best_dist: float = 0.0
 
-	# Step along the direction in fractional cell increments.
 	var steps: int = mini(ceili(dist), max_distance)
 	for i in range(1, steps + 1):
-		var frac: float = float(i) / dist
 		var candidate: Vector2i = Vector2i(
 			floori(float(from.x) + dir_normalized.x * float(i)),
 			floori(float(from.y) + dir_normalized.y * float(i))
@@ -270,7 +331,7 @@ func _get_nearest_walkable(cell: Vector2i, search_radius: int = 10) -> Vector2i:
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if absi(dx) != r and absi(dy) != r:
-					continue  # Only check the perimeter of each radius.
+					continue
 				var candidate: Vector2i = cell + Vector2i(dx, dy)
 				if _is_in_bounds(candidate) and _is_walkable_cell(candidate):
 					return candidate
@@ -286,6 +347,7 @@ func estimate_cost(from_cell: Vector2i, to_cell: Vector2i) -> float:
 		_astar.get_point_position(to_cell)
 	)
 
+
 # =============================================================================
 # Temporary Block / Unblock (Unit Collision)
 # =============================================================================
@@ -298,23 +360,24 @@ func temporarily_block(cell: Vector2i) -> void:
 	_temporarily_blocked[cell] = true
 	if _initialized:
 		_astar.set_point_solid(cell, true)
+	_path_cache.clear()
 
 
 ## Remove a temporary block from a cell.
 func unblock(cell: Vector2i) -> void:
 	_temporarily_blocked.erase(cell)
 	if _initialized and _is_in_bounds(cell):
-		# Only unblock if the cell is actually walkable in the grid.
 		if _grid_manager != null and _grid_manager.is_walkable(cell):
 			_astar.set_point_solid(cell, false)
+	_path_cache.clear()
 
 
 ## Clear all temporary blocks.
 func clear_temporary_blocks() -> void:
 	_temporarily_blocked.clear()
 	if _initialized:
-		# Rebuild to restore correct solid state.
 		rebuild()
+
 
 # =============================================================================
 # Coordinate Conversion
@@ -347,6 +410,7 @@ func _is_walkable_cell(cell: Vector2i) -> bool:
 		return false
 	return _grid_manager.is_walkable(cell)
 
+
 # =============================================================================
 # Scene Tree Helpers
 # =============================================================================
@@ -367,6 +431,7 @@ func _find_grid_manager_recursive(node: Node) -> Node:
 		if result != null:
 			return result
 	return null
+
 
 # =============================================================================
 # Callbacks

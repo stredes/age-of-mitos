@@ -231,6 +231,15 @@ func _handle_key(event: InputEventKey) -> void:
 			EventBus.button_pressed.emit("train_archer", GameManager.get_local_player_id())
 		KEY_C:
 			EventBus.button_pressed.emit("train_cavalry", GameManager.get_local_player_id())
+		KEY_A:
+			if Input.is_key_pressed(KEY_SHIFT):
+				EventBus.button_pressed.emit("attack_move_command", GameManager.get_local_player_id())
+			else:
+				EventBus.button_pressed.emit("attack_command", GameManager.get_local_player_id())
+		KEY_H:
+			EventBus.button_pressed.emit("hold_position_command", GameManager.get_local_player_id())
+		KEY_O:
+			EventBus.button_pressed.emit("patrol_command", GameManager.get_local_player_id())
 
 # =============================================================================
 # Release Processing
@@ -281,25 +290,20 @@ func _handle_right_click(world_pos: Vector2) -> void:
 
 	if selected_unit_ids.size() > 0:
 		var target_resource: Node2D = _find_resource_at_position(world_pos)
-		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
-		var unit_index: int = 0
-		for unit_id: int in selected_unit_ids:
-			var unit: Node2D = _find_unit_by_id(unit_id)
-			if unit == null:
-				continue
-			if target_resource != null:
-				unit.set("pending_target_resource", target_resource)
-				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
-				if state_machine != null and state_machine.has_method("change_state"):
-					state_machine.change_state("HarvestState")
-			else:
-				var move_target: Vector2 = formation_targets.get(unit_index, world_pos)
-				unit.set("pending_move_position", move_target)
-				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
-				if state_machine != null and state_machine.has_method("change_state"):
-					state_machine.change_state("MoveState")
-				EventBus.unit_moved.emit(unit_id, move_target)
-			unit_index += 1
+		if target_resource != null:
+			var resource_id: int = int(target_resource.get("resource_id")) if target_resource.get("resource_id") != null else -1
+			var resource_type: String = target_resource.get("resource_type") if target_resource.get("resource_type") != null else "wood"
+			EventBus.unit_command_requested.emit({
+				"command_type": "HARVEST",
+				"target": {"resource_id": resource_id, "resource_type": resource_type},
+				"shift_held": Input.is_key_pressed(KEY_SHIFT)
+			})
+		else:
+			EventBus.unit_command_requested.emit({
+				"command_type": "MOVE",
+				"target": {"position": world_pos},
+				"shift_held": Input.is_key_pressed(KEY_SHIFT)
+			})
 		AudioManager.play_ui_click()
 
 # =============================================================================
