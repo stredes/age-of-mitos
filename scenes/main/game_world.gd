@@ -715,3 +715,14 @@ func cleanup() -> void:
 		fog_of_war._initialize_fog_image()
 
 	world_cleanup_complete.emit()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _initialized:
+		return
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_T:
+				var ui_mgr: Node = get_node_or_null("UILayer/UIManager")
+				if ui_mgr and ui_mgr.has_method("toggle_tech_tree"):
+					ui_mgr.toggle_tech_tree()

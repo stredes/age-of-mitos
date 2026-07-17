@@ -115,6 +115,31 @@ func spawnEffect(effect_name: String, position: Vector2, count: int = -1) -> CPU
 	return particle
 
 
+## Spawn a directional particle effect (e.g., melee slash in facing direction).
+func spawnDirectional(effect_name: String, position: Vector2, direction: Vector2) -> CPUParticles2D:
+	var particle: CPUParticles2D = spawnEffect(effect_name, position)
+	if particle and direction != Vector2.ZERO:
+		particle.rotation = direction.angle()
+		particle.spread = 40.0
+	return particle
+
+
+## Spawn a colored resource burst at a position.
+func spawnResourceBurst(resource_type: String, position: Vector2) -> CPUParticles2D:
+	var particle: CPUParticles2D = spawnEffect("resource_burst", position)
+	if particle:
+		match resource_type:
+			"wood":
+				particle.color = Color(0.55, 0.35, 0.15, 0.9)
+			"stone":
+				particle.color = Color(0.65, 0.65, 0.6, 0.9)
+			"food":
+				particle.color = Color(0.3, 0.8, 0.2, 0.9)
+			"gold":
+				particle.color = Color(1.0, 0.85, 0.2, 0.9)
+	return particle
+
+
 ## Spawn a particle effect that follows a target node.
 func spawnAtTarget(effect_name: String, position: Vector2, target: Node2D) -> CPUParticles2D:
 	var particle: CPUParticles2D = spawnEffect(effect_name, position)
@@ -257,6 +282,55 @@ func _register_all_effects() -> void:
 		Vector2(0, -40), Color(1.0, 0.9, 0.2, 1.0), Color(1.0, 0.9, 0.2, 0.0),
 		0.3, 0.8
 	)
+	# melee_slash: directional slash arc
+	var slash_cfg: ParticleConfig = _make_config(
+		10, 0.3, 60.0, 80.0, 160.0,
+		Vector2(0, 0), Color(0.9, 0.9, 0.95, 0.9), Color(0.7, 0.7, 0.8, 0.0),
+		0.2, 0.5
+	)
+	slash_cfg.angular_velocity_min = -360.0
+	slash_cfg.angular_velocity_max = 360.0
+	_configs["melee_slash"] = slash_cfg
+	# projectile_impact: sparks + debris on arrow/bolt hit
+	_configs["projectile_impact"] = _make_config(
+		14, 0.5, 140.0, 50.0, 150.0,
+		Vector2(0, 40), Color(1.0, 0.8, 0.3, 1.0), Color(0.8, 0.4, 0.1, 0.0),
+		0.2, 0.6
+	)
+	# shield_block: metallic spark burst
+	_configs["shield_block"] = _make_config(
+		8, 0.3, 100.0, 40.0, 120.0,
+		Vector2(0, 0), Color(1.0, 0.95, 0.7, 1.0), Color(0.8, 0.7, 0.3, 0.0),
+		0.15, 0.4
+	)
+	# critical_hit: larger red/white burst
+	_configs["critical_hit"] = _make_config(
+		18, 0.5, 160.0, 60.0, 180.0,
+		Vector2(0, 0), Color(1.0, 0.3, 0.2, 1.0), Color(0.8, 0.1, 0.05, 0.0),
+		0.3, 0.8
+	)
+	# resource_burst: colored sparkles when collecting resources
+	var resource_burst_cfg: ParticleConfig = _make_config(
+		10, 0.8, 100.0, 20.0, 60.0,
+		Vector2(0, -30), Color(1.0, 0.9, 0.2, 1.0), Color(1.0, 0.9, 0.2, 0.0),
+		0.2, 0.5
+	)
+	resource_burst_cfg.angular_velocity_min = -180.0
+	resource_burst_cfg.angular_velocity_max = 180.0
+	_configs["resource_burst"] = resource_burst_cfg
+	# construction_sparks: bright sparks during building work
+	_configs["construction_sparks"] = _make_config(
+		6, 0.4, 80.0, 30.0, 80.0,
+		Vector2(0, 20), Color(1.0, 0.85, 0.4, 0.9), Color(1.0, 0.6, 0.1, 0.0),
+		0.15, 0.35
+	)
+	# blood_splatter: dark red droplets on death/damage
+	var blood_cfg: ParticleConfig = _make_config(
+		12, 0.6, 120.0, 30.0, 100.0,
+		Vector2(0, 60), Color(0.6, 0.05, 0.05, 0.9), Color(0.4, 0.02, 0.02, 0.0),
+		0.2, 0.5
+	)
+	_configs["blood_splatter"] = blood_cfg
 
 
 ## --- Pool Management ---

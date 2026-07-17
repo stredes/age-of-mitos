@@ -41,6 +41,16 @@ const DAY_TINT: Color = Color(1.0, 0.96, 0.86, 1.0)
 const VISIBILITY_MARGIN: float = 100.0
 const THROTTLE_FRAME_SKIP_Distant: int = 3
 const THROTTLE_FRAME_SKIP_Close: int = 1
+# Firefly settings.
+const MAX_FIREFLIES: int = 24
+const FIREFLY_SPEED: float = 12.0
+const FIREFLY_GLOW_MIN: float = 0.3
+const FIREFLY_GLOW_MAX: float = 1.0
+const FIREFLY_NIGHT_THRESHOLD: float = 0.3
+# Dust mote settings.
+const MAX_DUST_MOTES: int = 20
+const DUST_MOTE_SPEED: float = 5.0
+const DUST_MOTE_DAY_THRESHOLD: float = 0.15
 
 # --- Exported Properties ---
 @export var enabled: bool = true
@@ -101,6 +111,23 @@ class AmbientAnimalData:
 
 var _ambient_animals: Array[AmbientAnimalData] = []
 
+# --- Firefly Data ---
+class FireflyData:
+	var node: Node2D
+	var speed: Vector2 = Vector2.ZERO
+	var glow_timer: float = 0.0
+	var phase_offset: float = 0.0
+
+var _fireflies: Array[FireflyData] = []
+
+# --- Dust Mote Data ---
+class DustMoteData:
+	var node: ColorRect
+	var speed: Vector2 = Vector2.ZERO
+	var phase_offset: float = 0.0
+
+var _dust_motes: Array[DustMoteData] = []
+
 # --- Animation State ---
 var _elapsed_time: float = 0.0
 var _frame_counter: int = 0
@@ -117,6 +144,8 @@ func _ready() -> void:
 	_create_cloud_shadows()
 	_create_day_night_overlay()
 	_create_ambient_animals()
+	_create_fireflies()
+	_create_dust_motes()
 	_reset_bird_timer()
 
 
@@ -125,7 +154,7 @@ func _process(delta: float) -> void:
 		return
 	_elapsed_time += delta
 	_frame_counter += 1
-	# Update each system with throttling
+	# Update each system with throttling.
 	if tree_sway_enabled:
 		_update_tree_sway(delta)
 	if water_animation_enabled:
@@ -140,6 +169,8 @@ func _process(delta: float) -> void:
 		_update_ambient_animals(delta)
 	if day_night_enabled:
 		_update_day_night()
+	_update_fireflies(delta)
+	_update_dust_motes(delta)
 
 
 ## --- Public API ---
@@ -555,18 +586,41 @@ func _update_ambient_animals(delta: float) -> void:
 		data.wander_timer -= delta
 		if data.wander_timer <= 0.0:
 			data.wander_timer = randf_range(ANIMAL_WANDER_INTERVAL_MIN, ANIMAL_WANDER_INTERVAL_MAX)
-			data.direction = Vector2(randf_range(-1.0, 1.0), randf_range(-0.6, 0.6)).normalized()
-			if data.direction == Vector2.ZERO:
-				data.direction = Vector2.RIGHT
+			# Sometimes pause to "graze" (speed = 0).
+			if randf() < 0.3:
+				data.speed = 0.0
+				data.wander_timer *= 2.0
+			else:
+				data.speed = randf_range(ANIMAL_SPEED_MIN, ANIMAL_SPEED_MAX)
+				data.direction = Vector2(randf_range(-1.0, 1.0), randf_range(-0.6, 0.6)).normalized()
+				if data.direction == Vector2.ZERO:
+					data.direction = Vector2.RIGHT
 
 		data.node.global_position += data.direction * data.speed * delta * ambient_intensity
 		data.node.global_position.x = wrapf(data.node.global_position.x, world_bounds.position.x, world_bounds.end.x)
 		data.node.global_position.y = wrapf(data.node.global_position.y, world_bounds.position.y, world_bounds.end.y)
 		data.node.scale.x = -1.0 if data.direction.x < 0.0 else 1.0
-		var bob: float = sin(_elapsed_time * 6.0 + data.phase_offset) * 0.8
+		# Body bob with more natural movement.
+		var bob_speed: float = 6.0 if data.speed > 5.0 else 2.0
+		var bob_amount: float = 0.8 if data.speed > 5.0 else 0.3
+		var bob: float = sin(_elapsed_time * bob_speed + data.phase_offset) * bob_amount
 		var body: Node = data.node.get_node_or_null("Body")
 		if body is Control:
 			body.position.y = -3.0 + bob
+		# Leg animation (alternate up/down).
+		var leg_a: Node = data.node.get_node_or_null("LegA")
+		var leg_b: Node = data.node.get_node_or_null("LegB")
+		if data.speed > 3.0:
+			var leg_offset: float = sin(_elapsed_time * 8.0 + data.phase_offset) * 1.5
+			if leg_a is Control:
+				leg_a.position.y = 1.0 + leg_offset
+			if leg_b is Control:
+				leg_b.position.y = 1.0 - leg_offset
+		else:
+			if leg_a is Control:
+				leg_a.position.y = 1.0
+			if leg_b is Control:
+				leg_b.position.y = 1.0
 
 
 ## --- Day / Night ---
@@ -598,6 +652,111 @@ func _is_distant(pos: Vector2) -> bool:
 	var cam_center: Vector2 = _camera.global_position
 	var dist: float = pos.distance_to(cam_center)
 	return dist > 800.0
+
+
+## Get the current night amount (0.0 = day, 1.0 = night).
+func _get_night_amount() -> float:
+	var cycle: float = fmod(_elapsed_time, DAY_LENGTH_SECONDS) / DAY_LENGTH_SECONDS
+	var night_amount: float = clampf((sin(cycle * TAU - PI * 0.5) + 1.0) * 0.5, 0.0, 1.0)
+	return smoothstep(0.35, 0.95, night_amount)
+
+
+## --- Fireflies ---
+
+func _create_fireflies() -> void:
+	for i in MAX_FIREFLIES:
+		var fly: Node2D = Node2D.new()
+		fly.name = "Firefly_%d" % i
+		# Small glowing dot.
+		var dot: ColorRect = ColorRect.new()
+		dot.name = "Glow"
+		dot.size = Vector2(3, 3)
+		dot.position = Vector2(-1.5, -1.5)
+		dot.color = Color(0.85, 0.95, 0.4, 0.0)
+		fly.add_child(dot)
+		fly.z_index = 4
+		fly.global_position = Vector2(
+			randf_range(world_bounds.position.x, world_bounds.end.x),
+			randf_range(world_bounds.position.y, world_bounds.end.y)
+		)
+		add_child(fly)
+
+		var data: FireflyData = FireflyData.new()
+		data.node = fly
+		data.speed = Vector2(randf_range(-1, 1), randf_range(-1, 1)).normalized() * FIREFLY_SPEED
+		data.phase_offset = randf_range(0.0, TAU)
+		_fireflies.append(data)
+
+
+func _update_fireflies(delta: float) -> void:
+	var night: float = _get_night_amount()
+	for data in _fireflies:
+		if not is_instance_valid(data.node):
+			continue
+		# Only visible at night.
+		var visible: bool = night > FIREFLY_NIGHT_THRESHOLD
+		data.node.visible = visible
+		if not visible:
+			continue
+		# Drift slowly.
+		data.speed = data.speed.rotated(randf_range(-0.5, 0.5) * delta)
+		data.node.global_position += data.speed * delta * ambient_intensity
+		data.node.global_position.x = wrapf(data.node.global_position.x, world_bounds.position.x, world_bounds.end.x)
+		data.node.global_position.y = wrapf(data.node.global_position.y, world_bounds.position.y, world_bounds.end.y)
+		# Pulsing glow.
+		data.glow_timer += delta
+		var glow: float = (sin(data.glow_timer * 2.0 + data.phase_offset) * 0.5 + 0.5)
+		glow = lerp(FIREFLY_GLOW_MIN, FIREFLY_GLOW_MAX, glow) * night * ambient_intensity
+		var dot: Node = data.node.get_node_or_null("Glow")
+		if dot is ColorRect:
+			dot.color.a = glow
+			# Slight color shift warm/cool.
+			dot.color.r = 0.75 + glow * 0.2
+			dot.color.g = 0.9 + glow * 0.1
+
+
+## --- Dust Motes (sunlight particles) ---
+
+func _create_dust_motes() -> void:
+	for i in MAX_DUST_MOTES:
+		var mote: ColorRect = ColorRect.new()
+		mote.name = "DustMote_%d" % i
+		var sz: float = randf_range(1.5, 3.0)
+		mote.size = Vector2(sz, sz)
+		mote.position = Vector2(
+			randf_range(world_bounds.position.x, world_bounds.end.x),
+			randf_range(world_bounds.position.y, world_bounds.end.y)
+		)
+		mote.color = Color(1.0, 0.95, 0.8, 0.0)
+		mote.z_index = 5
+		add_child(mote)
+
+		var data: DustMoteData = DustMoteData.new()
+		data.node = mote
+		data.speed = Vector2(randf_range(-1, 1), randf_range(-0.5, 0.5)).normalized() * DUST_MOTE_SPEED
+		data.phase_offset = randf_range(0.0, TAU)
+		_dust_motes.append(data)
+
+
+func _update_dust_motes(delta: float) -> void:
+	var night: float = _get_night_amount()
+	for data in _dust_motes:
+		if not is_instance_valid(data.node):
+			continue
+		# Only visible during the day.
+		var day_amount: float = 1.0 - night
+		var visible: bool = day_amount > DUST_MOTE_DAY_THRESHOLD
+		data.node.visible = visible
+		if not visible:
+			continue
+		# Slow float.
+		data.node.position += data.speed * delta * ambient_intensity
+		data.node.position.x += sin(_elapsed_time * 0.8 + data.phase_offset) * 0.3
+		data.node.position.y += cos(_elapsed_time * 0.5 + data.phase_offset * 0.7) * 0.2
+		data.node.position.x = wrapf(data.node.position.x, world_bounds.position.x, world_bounds.end.x)
+		data.node.position.y = wrapf(data.node.position.y, world_bounds.position.y, world_bounds.end.y)
+		# Fade in sunlight.
+		data.node.color.a = day_amount * 0.25 * ambient_intensity
 
 
 ## Get the visible viewport rect in world coordinates.

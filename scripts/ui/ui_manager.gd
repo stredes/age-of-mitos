@@ -5,8 +5,9 @@ var minimap: Control = null
 var build_menu: Control = null
 var train_menu: Control = null
 var selection_panel: Control = null
+var victory_screen: Control = null
+var tech_tree_panel: Control = null
 var _pause_menu: Control = null
-var _game_over_panel: Control = null
 var _open_menu: String = ""
 
 
@@ -21,6 +22,8 @@ func _find_ui_nodes() -> void:
 	build_menu = _find_node_recursive("/root/GameWorld/UILayer", "BuildMenu") as Control
 	train_menu = _find_node_recursive("/root/GameWorld/UILayer", "TrainMenu") as Control
 	selection_panel = _find_node_recursive("/root/GameWorld/UILayer", "SelectionPanel") as Control
+	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
+	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 
 	if hud and hud.has_signal("build_menu_requested"):
 		if not hud.build_menu_requested.is_connected(open_build_menu):
@@ -94,21 +97,27 @@ func close_train_menu() -> void:
 
 
 func show_game_over(winner_id: int) -> void:
-	if _game_over_panel and is_instance_valid(_game_over_panel):
-		_game_over_panel.queue_free()
+	if victory_screen and victory_screen.has_method("show_victory"):
+		victory_screen.show_victory(winner_id)
+	else:
+		_fallback_game_over(winner_id)
 
-	_game_over_panel = Control.new()
-	_game_over_panel.name = "GameOverPanel"
-	_game_over_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+func _fallback_game_over(winner_id: int) -> void:
+	hide_pause_menu()
+
+	var panel: Control = Control.new()
+	panel.name = "GameOverPanel"
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 
 	var bg: ColorRect = ColorRect.new()
 	bg.color = Color(0.0, 0.0, 0.0, 0.7)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_game_over_panel.add_child(bg)
+	panel.add_child(bg)
 
 	var center: CenterContainer = CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_game_over_panel.add_child(center)
+	panel.add_child(center)
 
 	var vbox: VBoxContainer = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 16)
@@ -128,12 +137,6 @@ func show_game_over(winner_id: int) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
-	var subtitle: Label = Label.new()
-	subtitle.text = "Game Over"
-	subtitle.add_theme_font_size_override("font_size", 18)
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(subtitle)
-
 	var btn_container: HBoxContainer = HBoxContainer.new()
 	btn_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	btn_container.add_theme_constant_override("separation", 16)
@@ -145,7 +148,7 @@ func show_game_over(winner_id: int) -> void:
 	menu_btn.pressed.connect(func() -> void: GameManager.return_to_menu())
 	btn_container.add_child(menu_btn)
 
-	get_tree().current_scene.add_child(_game_over_panel)
+	get_tree().current_scene.add_child(panel)
 
 
 func hide_pause_menu() -> void:
@@ -348,3 +351,20 @@ func _find_building_by_id(building_id: int) -> Node2D:
 	if bm and bm.has_method("get_building"):
 		return bm.get_building(building_id)
 	return null
+
+
+func toggle_tech_tree() -> void:
+	if tech_tree_panel == null:
+		return
+	if tech_tree_panel.visible and tech_tree_panel.has_method("close"):
+		tech_tree_panel.close()
+	elif tech_tree_panel.has_method("open"):
+		tech_tree_panel.open()
+
+
+func is_any_overlay_visible() -> bool:
+	if victory_screen and victory_screen.visible:
+		return true
+	if tech_tree_panel and tech_tree_panel.visible:
+		return true
+	return false
