@@ -56,6 +56,15 @@ var has_build_mode: bool = false
 ## The building type being placed in build mode.
 var build_mode_type: String = ""
 
+## Ghost building preview node.
+var _ghost_building: Node = null
+
+## Whether we are in rally-point placement mode.
+var _rally_mode: bool = false
+
+## Building ID whose rally point we are setting.
+var _rally_building_id: int = -1
+
 ## Reference to the Camera2D used for coordinate conversion.
 var _camera: Camera2D = null
 
@@ -99,6 +108,11 @@ func _process(_delta: float) -> void:
 	# Update the selection rectangle visual if actively selecting.
 	if _is_selecting:
 		_update_selection_rect_visual()
+
+	# Update ghost building position in build mode.
+	if has_build_mode and _ghost_building != null and is_instance_valid(_ghost_building):
+		var screen_pos: Vector2 = get_viewport().get_mouse_position()
+		_ghost_building.update_position(screen_pos)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -208,12 +222,18 @@ func _handle_key(event: InputEventKey) -> void:
 		return
 	match event.keycode:
 		KEY_ESCAPE:
-			if has_build_mode:
+			if _rally_mode:
+				cancel_rally_mode()
+			elif has_build_mode:
 				cancel_build_mode()
 			else:
 				deselect_all()
 		KEY_B:
 			EventBus.button_pressed.emit("build_menu", GameManager.get_local_player_id())
+		KEY_A:
+			EventBus.button_pressed.emit("attack_move_command", GameManager.get_local_player_id())
+		KEY_H:
+			EventBus.button_pressed.emit("hold_position_command", GameManager.get_local_player_id())
 		KEY_S:
 			EventBus.button_pressed.emit("stop_command", GameManager.get_local_player_id())
 		KEY_W:
@@ -252,7 +272,9 @@ func _process_release(release_screen_pos: Vector2) -> void:
 
 	if drag_distance < click_threshold and not _has_dragged:
 		# This was a click / tap.
-		if has_build_mode:
+		if _rally_mode:
+			_handle_rally_click(release_screen_pos)
+		elif has_build_mode:
 			_handle_build_click(release_screen_pos)
 		else:
 			_handle_click(release_screen_pos)
@@ -281,6 +303,11 @@ func _handle_click(screen_pos: Vector2) -> void:
 
 ## Process a right-click / long-press command at the given world position.
 func _handle_right_click(world_pos: Vector2) -> void:
+	if _rally_mode:
+		# Right click cancels rally mode.
+		cancel_rally_mode()
+		return
+
 	if has_build_mode:
 		cancel_build_mode()
 		return
@@ -350,17 +377,21 @@ func _find_destination_marker() -> Node:
 # =============================================================================
 
 ## Process a click while in build mode — attempt to place the building.
-func _handle_build_click(screen_pos: Vector2) -> void:
-	var world_pos: Vector2 = _screen_to_world(screen_pos)
-	var grid_manager: Node = get_node_or_null("/root/GameWorld/GridManager")
-	if grid_manager == null:
-		push_warning("InputManager: GridManager not found for build placement.")
+func _handle_build_click(_screen_pos: Vector2) -> void:
+	if _ghost_building != null and is_instance_valid(_ghost_building):
+		var success: bool = _ghost_building.confirm_placement()
+		if success:
+			_ghost_building = null
+			cancel_build_mode()
 		return
 
-	# Convert world position to grid cell.
-	var cell: Vector2i = grid_manager.get_cell_from_world(world_pos)
+	# Fallback if ghost building not available.
+	var world_pos: Vector2 = _screen_to_world(_screen_pos)
+	var grid_manager: Node = _find_grid_manager()
+	if grid_manager == null:
+		return
 
-	# Look up building size from DataManager.
+	var cell: Vector2i = grid_manager.get_cell_from_world(world_pos)
 	var building_data: Dictionary = DataManager.get_building_data(build_mode_type)
 	var raw_size: Variant = building_data.get("size", {"x": 2, "y": 2})
 	var size: Vector2i
@@ -379,12 +410,8 @@ func _handle_build_click(screen_pos: Vector2) -> void:
 			var building_node: Node2D = null
 			if building_manager != null and building_manager.has_method("place_building"):
 				building_node = building_manager.place_building(build_mode_type, cell, player_id)
-			elif grid_manager.has_method("place_building"):
-				grid_manager.place_building(cell, size, build_mode_type)
-
 			if building_node != null and building_node.has_method("start_construction"):
 				building_node.start_construction()
-
 			AudioManager.play_sfx("res://audio/sfx/build_place.wav")
 		else:
 			AudioManager.play_sfx("res://audio/sfx/cant_build.wav")
@@ -397,6 +424,15 @@ func enter_build_mode(building_type: String) -> void:
 	has_build_mode = true
 	build_mode_type = building_type
 	deselect_all()
+
+	# Create ghost building preview.
+	_ghost_building = GhostBuilding.new()
+	_ghost_building.name = "GhostBuilding"
+	_ghost_building.setup(building_type, GameManager.get_local_player_id())
+	var root: Node = get_tree().current_scene
+	if root != null:
+		root.add_child(_ghost_building)
+
 	EventBus.menu_opened.emit("build_mode")
 
 
@@ -404,7 +440,49 @@ func enter_build_mode(building_type: String) -> void:
 func cancel_build_mode() -> void:
 	has_build_mode = false
 	build_mode_type = ""
+
+	if _ghost_building != null and is_instance_valid(_ghost_building):
+		_ghost_building.cancel()
+		_ghost_building = null
+
 	EventBus.menu_closed.emit("build_mode")
+
+# =============================================================================
+# Rally Point Mode
+# =============================================================================
+
+## Enter rally-point placement mode for the given building.
+func enter_rally_mode(building_id: int) -> void:
+	_rally_mode = true
+	_rally_building_id = building_id
+
+
+## Exit rally-point placement mode.
+func cancel_rally_mode() -> void:
+	_rally_mode = false
+	_rally_building_id = -1
+
+
+func _handle_rally_click(screen_pos: Vector2) -> void:
+	var world_pos: Vector2 = _screen_to_world(screen_pos)
+	var building_id: int = _rally_building_id
+
+	# Find production queue node.
+	var pq: Node = get_node_or_null("/root/GameWorld/ProductionQueue")
+	if pq == null:
+		pq = get_node_or_null("/root/GameWorld/World/ProductionQueue")
+	if pq != null and pq.has_method("set_rally_point"):
+		pq.set_rally_point(building_id, world_pos)
+
+	# Update the train menu display.
+	var train_menu: Node = get_node_or_null("/root/GameWorld/UI/TrainMenu")
+	if train_menu == null:
+		train_menu = get_node_or_null("/root/GameWorld/World/UI/TrainMenu")
+	if train_menu != null and train_menu.has_method("update_rally_display"):
+		train_menu.update_rally_display(world_pos)
+
+	AudioManager.play_sfx("res://audio/sfx/build_place.wav")
+	cancel_rally_mode()
 
 
 ## Generate a unique building ID. In production, delegate to a world entity manager.

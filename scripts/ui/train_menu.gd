@@ -13,6 +13,8 @@ var _title_label: Label = null
 var _close_button: Button = null
 var _queue_separator: HSeparator = null
 var _queue_label: Label = null
+var _rally_button: Button = null
+var _rally_label: Label = null
 
 var _resource_icons: Dictionary = {
 	"wood": "🪵",
@@ -71,6 +73,21 @@ func _build_ui() -> void:
 	_close_button.custom_minimum_size = Vector2(48, 48)
 	_close_button.pressed.connect(close)
 	header.add_child(_close_button)
+
+	_rally_button = Button.new()
+	_rally_button.name = "RallyButton"
+	_rally_button.text = "🚩 Rally"
+	_rally_button.custom_minimum_size = Vector2(100, 36)
+	_rally_button.pressed.connect(_on_rally_button_pressed)
+	header.add_child(_rally_button)
+
+	_rally_label = Label.new()
+	_rally_label.name = "RallyLabel"
+	_rally_label.text = ""
+	_rally_label.add_theme_font_size_override("font_size", 11)
+	_rally_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
+	_rally_label.visible = false
+	_main_vbox.add_child(_rally_label)
 
 	_progress_bar = ProgressBar.new()
 	_progress_bar.name = "ProgressBar"
@@ -442,3 +459,23 @@ func _on_construction_completed(building_id: int, _player_id: int) -> void:
 	if building_id == _current_building_id:
 		_update_queue_display()
 		refresh_unit_options(_current_building_type)
+
+
+func _on_rally_button_pressed() -> void:
+	if _current_building_id == -1:
+		return
+
+	EventBus.menu_opened.emit("rally_point_mode")
+
+	# Enter rally-point placement mode via input_manager.
+	var input_mgr: Node = get_node_or_null("/root/GameWorld/InputManager")
+	if input_mgr == null:
+		input_mgr = get_node_or_null("/root/GameWorld/World/InputManager")
+	if input_mgr != null and input_mgr.has_method("enter_rally_mode"):
+		input_mgr.enter_rally_mode(_current_building_id)
+
+
+func update_rally_display(position: Vector2) -> void:
+	if _rally_label:
+		_rally_label.visible = true
+		_rally_label.text = "Rally: (%d, %d)" % [int(position.x), int(position.y)]

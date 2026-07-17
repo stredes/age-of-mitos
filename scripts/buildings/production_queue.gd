@@ -9,6 +9,7 @@ extends Node
 
 signal production_complete(building_id: int, item_type: String)
 signal queue_updated(building_id: int, queue: Array)
+signal rally_point_set(building_id: int, position: Vector2)
 
 # =============================================================================
 # Constants
@@ -21,6 +22,9 @@ const MAX_QUEUE_SIZE: int = 5
 # =============================================================================
 
 var queues: Dictionary = {}
+
+## Rally points per building. Key: building_id, Value: Vector2.
+var rally_points: Dictionary = {}
 
 # =============================================================================
 # Lifecycle
@@ -141,6 +145,29 @@ func get_queue_size(building_id: int) -> int:
 	return queues[building_id].size()
 
 # =============================================================================
+# Rally Point
+# =============================================================================
+
+## Set the rally point for a building. Produced units will walk here after spawning.
+func set_rally_point(building_id: int, position: Vector2) -> void:
+	rally_points[building_id] = position
+	rally_point_set.emit(building_id, position)
+
+
+## Get the rally point for a building, or the building's position if unset.
+func get_rally_point(building_id: int) -> Vector2:
+	if rally_points.has(building_id):
+		return rally_points[building_id]
+	var building: Node2D = _get_building(building_id)
+	if building != null:
+		return building.global_position
+	return Vector2.ZERO
+
+
+func clear_rally_point(building_id: int) -> void:
+	rally_points.erase(building_id)
+
+# =============================================================================
 # Production Update
 # =============================================================================
 
@@ -190,7 +217,6 @@ func _on_item_produced(building_id: int, item_type: String) -> void:
 
 
 func _spawn_unit(building_id: int, building: Node2D, unit_type: String) -> void:
-	var spawn_pos: Vector2 = building.global_position
 	var player_id: int = -1
 	if building.has_method("get"):
 		player_id = building.get("player_id") if building.get("player_id") != null else -1
@@ -202,9 +228,36 @@ func _spawn_unit(building_id: int, building: Node2D, unit_type: String) -> void:
 	var pop_add: int = unit_data.get("pop_add", 1)
 
 	var spawn_offset: Vector2 = Vector2(randf_range(-32.0, 32.0), randf_range(24.0, 64.0))
-	var final_pos: Vector2 = spawn_pos + spawn_offset
+	var final_pos: Vector2 = building.global_position + spawn_offset
 
-	EventBus.unit_spawned.emit(randi(), unit_type, player_id, final_pos)
+	var unit_id: int = randi()
+	EventBus.unit_spawned.emit(unit_id, unit_type, player_id, final_pos)
+
+	# Send unit to rally point after a short delay.
+	var rally: Vector2 = get_rally_point(building_id)
+	if rally.distance_to(final_pos) > 16.0:
+		call_deferred("_send_unit_to_rally", unit_id, rally)
+
+
+func _send_unit_to_rally(unit_id: int, rally_pos: Vector2) -> void:
+	await get_tree().create_timer(0.3).timeout
+
+	var unit_manager: Node = get_node_or_null("/root/GameWorld/UnitManager")
+	if unit_manager == null:
+		unit_manager = get_node_or_null("/root/GameWorld/World/UnitManager")
+	if unit_manager == null:
+		return
+
+	var unit_node: Node2D = null
+	if unit_manager.has_method("get_unit"):
+		unit_node = unit_manager.get_unit(unit_id)
+
+	if unit_node == null or not is_instance_valid(unit_node):
+		return
+
+	var move_comp: Node = unit_node.get_node_or_null("MovementComponent")
+	if move_comp != null and move_comp.has_method("move_to"):
+		move_comp.move_to(rally_pos)
 
 
 func _apply_technology(building_id: int, _building: Node2D, tech_id: String) -> void:
@@ -295,6 +348,7 @@ func _on_building_destroyed(building_id: int, _player_id: int, _destroyer_id: in
 		for i in range(1, queue.size()):
 			_refund_item(building_id, queue[i]["type"])
 		queues.erase(building_id)
+	rally_points.erase(building_id)
 
 
 func _on_construction_completed(building_id: int, _player_id: int) -> void:

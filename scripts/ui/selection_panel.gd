@@ -356,7 +356,7 @@ func update_hp_bar(current: int, max_val: int) -> void:
 		_hp_label.text = "%d/%d" % [current, max_val]
 
 
-func add_command_button(label: String, icon_text: String, callback: Callable) -> void:
+func add_command_button(label: String, icon_text: String, callback: Callable, hotkey_override: String = "") -> void:
 	if _commands_container == null:
 		return
 	_commands_container.visible = true
@@ -364,7 +364,7 @@ func add_command_button(label: String, icon_text: String, callback: Callable) ->
 	var btn: Button = Button.new()
 	btn.name = "Cmd_" + label
 	btn.custom_minimum_size = Vector2(64, 48)
-	var hotkey: String = _get_command_hotkey(label)
+	var hotkey: String = hotkey_override if not hotkey_override.is_empty() else _get_command_hotkey(label)
 	var label_text: String = label + (" [" + hotkey + "]" if not hotkey.is_empty() else "")
 	btn.text = icon_text + "\n" + label_text if icon_text.length() > 0 else label_text
 	btn.tooltip_text = _get_command_tooltip(label, hotkey)
@@ -410,6 +410,10 @@ func _play_button_feedback(button: Button) -> void:
 
 func _get_command_hotkey(label: String) -> String:
 	var lower_label: String = label.to_lower()
+	if lower_label.begins_with("atk-move"):
+		return "A"
+	if lower_label.begins_with("hold"):
+		return "H"
 	if lower_label.begins_with("attack"):
 		return "A"
 	if lower_label.begins_with("move"):
@@ -463,6 +467,11 @@ func _add_unit_commands(unit_data: Dictionary) -> void:
 	if "move" in states:
 		add_command_button("Move", "👟", func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
 	add_command_button("Stop", "🛑", func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
+
+	# Military-only commands.
+	if not unit_type.begins_with("villager"):
+		add_command_button("Atk-Move", "🗡️", func() -> void: EventBus.button_pressed.emit("attack_move_command", GameManager.local_player_id), "A")
+		add_command_button("Hold", "🛡️", func() -> void: EventBus.button_pressed.emit("hold_position_command", GameManager.local_player_id), "H")
 
 	if unit_data.get("gather_rate", null) != null:
 		add_command_button("Wood", "🪵", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_wood"))

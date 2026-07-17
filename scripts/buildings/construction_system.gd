@@ -15,6 +15,9 @@ signal construction_complete(building_id: int)
 
 const WORK_PER_VILLAGER_PER_SECOND: int = 5
 
+# Diminishing returns per additional builder: [1st, 2nd, 3rd, 4th, 5th+]
+const BUILDER_EFFICIENCY: Array[float] = [1.0, 0.8, 0.65, 0.55, 0.5]
+
 # =============================================================================
 # Properties
 # =============================================================================
@@ -125,9 +128,6 @@ func update_construction(building_id: int, delta: float) -> void:
 		active_constructions.erase(building_id)
 		return
 
-	var work_per_second: int = WORK_PER_VILLAGER_PER_SECOND * builder_count
-	var total_work: int = entry["total"]
-
 	# Clean up invalid builders.
 	var valid_builders: Array = []
 	for vid: int in builders:
@@ -139,7 +139,14 @@ func update_construction(building_id: int, delta: float) -> void:
 	if builder_count == 0:
 		return
 
-	var actual_work: int = work_per_second
+	# Apply diminishing returns for multiple builders.
+	var efficiency_index: int = clampi(builder_count - 1, 0, BUILDER_EFFICIENCY.size() - 1)
+	var efficiency: float = BUILDER_EFFICIENCY[efficiency_index]
+	var work_per_second: int = WORK_PER_VILLAGER_PER_SECOND * builder_count
+	var actual_work: int = maxi(ceili(float(work_per_second) * efficiency), 1)
+
+	var total_work: int = entry["total"]
+
 	if building.has_method("advance_construction"):
 		building.advance_construction(actual_work)
 

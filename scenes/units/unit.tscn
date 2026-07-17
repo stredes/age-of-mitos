@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/units/unit_base.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/units/unit_state_machine.gd" id="2"]
@@ -14,6 +14,7 @@
 [ext_resource type="Script" path="res://scripts/units/components/harvest_component.gd" id="12"]
 [ext_resource type="Script" path="res://scripts/units/components/selection_component.gd" id="13"]
 [ext_resource type="Script" path="res://scripts/animation/unit_animation_controller.gd" id="14"]
+[ext_resource type="Script" path="res://scripts/units/states/attack_move_state.gd" id="15"]
 
 [sub_resource type="CircleShape2D" id="CircleShape2D_1"]
 radius = 8.0
@@ -40,6 +41,9 @@ script = ExtResource("4")
 
 [node name="AttackState" type="Node" parent="UnitStateMachine"]
 script = ExtResource("5")
+
+[node name="AttackMoveState" type="Node" parent="UnitStateMachine"]
+script = ExtResource("15")
 
 [node name="HarvestState" type="Node" parent="UnitStateMachine"]
 script = ExtResource("6")

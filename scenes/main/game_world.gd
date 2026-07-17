@@ -552,6 +552,10 @@ func _on_button_pressed(button_name: String, player_id: int) -> void:
 			_open_build_menu()
 		"stop_command":
 			_stop_selected_units()
+		"attack_move_command":
+			_attack_move_selected_units()
+		"hold_position_command":
+			_hold_position_selected_units()
 		"gather_wood":
 			_assign_selected_units_to_resource("wood")
 		"gather_food":
@@ -598,6 +602,39 @@ func _stop_selected_units() -> void:
 		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 		if state_machine != null and state_machine.has_method("change_state"):
 			state_machine.change_state("IdleState")
+
+
+func _attack_move_selected_units() -> void:
+	if selection_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		# Only military units enter attack-move; villagers skip.
+		var unit_type: String = unit.get("unit_type") if unit.get("unit_type") != null else ""
+		if unit_type.begins_with("villager"):
+			continue
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackMoveState")
+
+
+func _hold_position_selected_units() -> void:
+	if selection_manager == null:
+		return
+	for unit_id: int in selection_manager.get_selected_units():
+		var unit: Node2D = unit_manager.get_unit(unit_id)
+		if unit == null:
+			continue
+		var movement: Node = unit.get_node_or_null("MovementComponent")
+		if movement != null and movement.has_method("stop"):
+			movement.stop()
+		# Set hold_position flag so attack_state doesn't chase.
+		unit.set("hold_position", true)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackState")
 
 
 func _assign_selected_units_to_resource(resource_type: String) -> void:

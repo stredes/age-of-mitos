@@ -13,6 +13,9 @@ func enter() -> void:
 	if unit == null:
 		return
 
+	# Clear hold_position on new attack command.
+	unit.set("hold_position", false)
+
 	var combat: Node = unit.get_node_or_null("CombatComponent")
 	if combat == null:
 		state_machine.change_state("IdleState")
@@ -60,6 +63,11 @@ func update(delta: float) -> void:
 			_play_attack_anim()
 			combat.attack(target_node)
 	else:
+		# Don't chase if hold_position is set.
+		var hold_pos: bool = unit.get("hold_position") if unit.get("hold_position") != null else false
+		if hold_pos:
+			return
+
 		_chase_timer += delta
 		if _chase_timer >= CHASE_CHECK_INTERVAL:
 			_chase_timer = 0.0

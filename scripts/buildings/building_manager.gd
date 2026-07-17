@@ -168,6 +168,46 @@ func remove_building(building_id: int) -> void:
 
 	building_removed.emit(building_id, player_id)
 
+
+## Cancel a building under construction and refund a percentage of resources.
+## [param refund_percent: float] Fraction of original cost returned (0.0 - 1.0).
+func cancel_construction(building_id: int, refund_percent: float = 0.75) -> void:
+	if not buildings.has(building_id):
+		return
+
+	var building_node: Node2D = buildings[building_id]
+	if building_node == null or not is_instance_valid(building_node):
+		return
+
+	# Only cancel if not yet completed.
+	if building_node.get("is_constructed") == true:
+		return
+
+	var player_id: int = building_node.get("player_id") if building_node.has_method("get") and building_node.get("player_id") != null else -1
+	var building_type: String = building_node.get("building_type") if building_node.has_method("get") and building_node.get("building_type") != null else ""
+
+	# Calculate and refund resources.
+	if player_id != -1 and not building_type.is_empty():
+		var building_data: Dictionary = DataManager.get_building_data(building_type)
+		var cost: Dictionary = building_data.get("cost", {})
+		for res_type: String in cost:
+			var original: int = cost[res_type]
+			var refund: int = maxi(ceili(float(original) * refund_percent), 0)
+			if refund > 0:
+				GameManager.add_resource(res_type, refund, player_id)
+
+	# Remove from grid and scene.
+	var grid_pos: Vector2i = building_node.get("grid_position") if building_node.has_method("get") and building_node.get("grid_position") != null else Vector2i.ZERO
+
+	buildings.erase(building_id)
+	if _grid_manager:
+		_grid_manager.remove_building_by_id(str(building_id))
+
+	if is_instance_valid(building_node):
+		building_node.queue_free()
+
+	building_removed.emit(building_id, player_id)
+
 # =============================================================================
 # Queries
 # =============================================================================
