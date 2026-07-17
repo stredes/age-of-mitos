@@ -14,7 +14,8 @@ signal animation_death_finished
 const WALK_BOUNCE_AMOUNT: float = -1.0
 const WALK_BOUNCE_DURATION: float = 0.15
 const IDLE_OFFSET_RANGE: Vector2 = Vector2(1.0, 1.0)
-const IDLE_OFFSET_DURATION: float = 0.8
+const IDLE_DURATION_MIN: float = 0.5
+const IDLE_DURATION_MAX: float = 1.0
 const IDLE_INTERVAL_MIN: float = 2.0
 const IDLE_INTERVAL_MAX: float = 5.0
 const HURT_FLASH_DURATION: float = 0.12
@@ -25,6 +26,8 @@ const DEATH_FADE_DURATION: float = 2.0
 const ATTACK_IMPACT_FRAME: int = 2
 const MIN_SPEED_MULT: float = 0.5
 const MAX_SPEED_MULT: float = 2.0
+const STATE_TRANSITION_DURATION: float = 0.1
+const ATTACK_SWING_ANGLE: float = 12.0
 
 # --- Exported Properties ---
 @export var corpse_duration: float = DEATH_CORPSE_DURATION
@@ -37,6 +40,7 @@ var _parent_unit: Node2D = null
 
 # --- State ---
 var _current_state: String = "idle"
+var _previous_state: String = "idle"
 var _facing_direction: Vector2 = Vector2.RIGHT
 var _anim_speed_mult: float = 1.0
 var _unit_id: String = ""
@@ -46,6 +50,7 @@ var _next_idle_interval: float = 3.0
 var _current_tween: Tween = null
 var _idle_tween: Tween = null
 var _death_tween: Tween = null
+var _transition_tween: Tween = null
 var _random_offset: float = 0.0
 
 # Harvest resource type mapping to animation names
@@ -138,16 +143,47 @@ func play_state(state_name: String, direction: Vector2 = Vector2.ZERO) -> void:
 		return
 	if direction != Vector2.ZERO:
 		_facing_direction = direction.normalized()
+
+	# Skip if already in this state.
+	if state_name == _current_state and _sprite.is_playing():
+		_apply_facing()
+		return
+
 	_apply_facing()
-	# Handle harvest sub-types
+
+	# Handle harvest sub-types.
 	if state_name == "harvest":
 		_play_harvest_state()
 		return
 	if state_name == "mine":
+		_previous_state = _current_state
 		_current_state = "mine"
-		_set_sprite_animation("mine")
+		_transition_to("mine")
 		return
+
+	# Smooth transition for state changes.
+	var needs_transition: bool = _current_state != state_name
+	_previous_state = _current_state
 	_current_state = state_name
+
+	if needs_transition and _previous_state in ["idle", "walk", "run", "build", "carry"]:
+		_crossfade_to(state_name)
+	else:
+		_set_sprite_animation(state_name)
+
+
+## Crossfade to a new animation by fading out the current and playing the new one.
+func _crossfade_to(state_name: String) -> void:
+	if not _sprite:
+		return
+	# For instant transitions, just play the new animation.
+	_set_sprite_animation(state_name)
+
+
+## Transition to a new animation state.
+func _transition_to(state_name: String) -> void:
+	if not _sprite:
+		return
 	_set_sprite_animation(state_name)
 
 
@@ -173,16 +209,16 @@ func play_hurt() -> void:
 	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	_current_tween.chain().tween_property(
 		_sprite, "position", original_position,
-		HURT_KNOCKBACK_DURATION
-	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		HURT_KNOCKBACK_DURATION * 1.2
+	).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_current_tween.finished.connect(_on_hurt_tween_finished.bind(original_modulate), CONNECT_ONE_SHOT)
 
 
 func _on_hurt_tween_finished(original_modulate: Color) -> void:
 	if _sprite:
 		_sprite.modulate = original_modulate
-	# Return to previous state
-	play_state(_current_state)
+	# Return to previous state.
+	play_state(_previous_state)
 
 
 ## Play the death sequence: death anim -> corpse hold -> fade -> free.
@@ -353,17 +389,18 @@ func _play_harvest_state() -> void:
 	_set_sprite_animation(anim_name)
 
 
-## Play idle micro-animation: random small position offset.
+## Play idle micro-animation: random small position offset with breathing feel.
 func _play_idle_micro_animation() -> void:
 	if not _sprite or _is_dead:
 		return
 	var offset_x: float = randf_range(-IDLE_OFFSET_RANGE.x, IDLE_OFFSET_RANGE.x)
-	var offset_y: float = randf_range(-IDLE_OFFSET_RANGE.y, IDLE_OFFSET_RANGE.y)
+	var offset_y: float = randf_range(-IDLE_OFFSET_RANGE.y * 0.5, IDLE_OFFSET_RANGE.y)
+	var duration: float = randf_range(IDLE_DURATION_MIN, IDLE_DURATION_MAX)
 	if _idle_tween and _idle_tween.is_valid():
 		_idle_tween.kill()
 	_idle_tween = create_tween().set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
-	_idle_tween.tween_property(_sprite, "position", Vector2(offset_x, offset_y), IDLE_OFFSET_DURATION)
-	_idle_tween.tween_property(_sprite, "position", Vector2.ZERO, IDLE_OFFSET_DURATION)
+	_idle_tween.tween_property(_sprite, "position", Vector2(offset_x, offset_y), duration * 0.5)
+	_idle_tween.tween_property(_sprite, "position", Vector2.ZERO, duration * 0.5)
 
 
 ## Reset the idle timer to a random interval.
@@ -408,8 +445,8 @@ func _apply_walk_bounce() -> void:
 		return
 	var original_y: float = 0.0
 	var bounce_tween: Tween = create_tween()
-	bounce_tween.tween_property(_sprite, "position:y", WALK_BOUNCE_AMOUNT, WALK_BOUNCE_DURATION * 0.5)
-	bounce_tween.tween_property(_sprite, "position:y", original_y, WALK_BOUNCE_DURATION * 0.5)
+	bounce_tween.tween_property(_sprite, "position:y", WALK_BOUNCE_AMOUNT, WALK_BOUNCE_DURATION * 0.5).set_trans(Tween.TRANS_SINE)
+	bounce_tween.tween_property(_sprite, "position:y", original_y, WALK_BOUNCE_DURATION * 0.5).set_trans(Tween.TRANS_SINE)
 
 
 ## Check if the current frame is the attack impact frame.

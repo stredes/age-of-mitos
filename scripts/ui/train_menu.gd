@@ -190,11 +190,12 @@ func _create_unit_button(unit_type: String) -> void:
 	var train_time: float = unit_data.get("train_time", 10.0)
 	var hp: int = unit_data.get("hp", 0)
 	var attack: int = unit_data.get("attack", 0)
+	var armor: int = unit_data.get("armor", 0)
 	var can_afford: bool = GameManager.can_afford(cost, GameManager.local_player_id)
 
 	var btn: Button = Button.new()
 	btn.name = "Train_" + unit_type
-	btn.custom_minimum_size = Vector2(0, 64)
+	btn.custom_minimum_size = Vector2(0, 72)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var btn_style: StyleBoxFlat = StyleBoxFlat.new()
@@ -220,8 +221,19 @@ func _create_unit_button(unit_type: String) -> void:
 
 	var inner_hbox: HBoxContainer = HBoxContainer.new()
 	inner_hbox.name = "Inner"
-	inner_hbox.add_theme_constant_override("separation", 12)
+	inner_hbox.add_theme_constant_override("separation", 8)
 	btn.add_child(inner_hbox)
+
+	var preview: TextureRect = TextureRect.new()
+	preview.name = "Preview"
+	preview.custom_minimum_size = Vector2(40, 40)
+	preview.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview.texture = ProceduralSpriteFactory.get_unit_preview(unit_type, GameManager.local_player_id)
+	if not can_afford:
+		preview.modulate = Color(0.5, 0.5, 0.5, 0.7)
+	inner_hbox.add_child(preview)
 
 	var left_vbox: VBoxContainer = VBoxContainer.new()
 	left_vbox.name = "Left"
@@ -237,7 +249,7 @@ func _create_unit_button(unit_type: String) -> void:
 	left_vbox.add_child(name_label)
 
 	var stats_label: Label = Label.new()
-	stats_label.text = "HP: %d  ATK: %d" % [hp, attack]
+	stats_label.text = "HP: %d  ATK: %d  DEF: %d" % [hp, attack, armor]
 	stats_label.add_theme_font_size_override("font_size", 11)
 	stats_label.add_theme_color_override("font_color", Color(0.6, 0.7, 0.6))
 	left_vbox.add_child(stats_label)
@@ -391,7 +403,9 @@ func _update_progress_display() -> void:
 			_progress_bar.value = progress * 100.0
 			_progress_label.visible = true
 			_progress_label.text = "Producing: %d%%" % int(progress * 100.0)
-	_update_queue_display()
+		else:
+			_progress_bar.visible = false
+			_progress_label.visible = false
 
 
 func _find_building_by_id(building_id: int) -> Node2D:
@@ -413,9 +427,18 @@ func _format_cost_short(cost: Dictionary) -> String:
 	return " ".join(parts)
 
 
-func _on_construction_progress(_building_id: int, _current_hp: int, _total_hp: int) -> void:
-	pass
+func _on_construction_progress(building_id: int, current_hp: int, total_hp: int) -> void:
+	if building_id == _current_building_id and total_hp > 0:
+		var progress: float = float(current_hp) / float(total_hp)
+		if _progress_bar:
+			_progress_bar.visible = true
+			_progress_bar.value = progress * 100.0
+		if _progress_label:
+			_progress_label.visible = true
+			_progress_label.text = "Building: %d%%" % int(progress * 100.0)
 
 
-func _on_construction_completed(_building_id: int, _player_id: int) -> void:
-	pass
+func _on_construction_completed(building_id: int, _player_id: int) -> void:
+	if building_id == _current_building_id:
+		_update_queue_display()
+		refresh_unit_options(_current_building_type)

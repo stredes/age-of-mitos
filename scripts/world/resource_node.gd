@@ -68,6 +68,8 @@ var _sprite_rect: ColorRect = null
 var _amount_label: Label = null
 var _selection_ring: Node2D = null
 var _visual_time: float = 0.0
+var _depletion_scale: float = 1.0
+var _depletion_alpha: float = 1.0
 
 ## Regrow timer for food.
 var _regrow_timer: float = 0.0
@@ -77,6 +79,9 @@ var _is_depleted: bool = false
 
 ## Unique world ID for EventBus communication.
 var _world_id: int = -1
+
+## Visual variant (determines tree shape, rock form, etc.).
+var _visual_variant: int = 0
 
 ## Color palette per resource type.
 const RESOURCE_COLORS: Dictionary = {
@@ -89,11 +94,15 @@ const RESOURCE_COLORS: Dictionary = {
 ## Depleted color (grey/faded).
 const DEPLETED_COLOR: Color = Color(0.35, 0.35, 0.35, 0.5)
 
+## Depletion animation speed.
+const DEPLETION_SPEED: float = 2.5
+
 # =============================================================================
 # Lifecycle
 # =============================================================================
 
 func _ready() -> void:
+	_visual_variant = (grid_pos.x * 7 + grid_pos.y * 13 + resource_type.length()) % 5
 	_build_visual()
 	_update_visual()
 	_world_id = _generate_world_id()
@@ -101,6 +110,15 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_visual_time += delta
+
+	# Smooth depletion animation.
+	if _is_depleted:
+		_depletion_scale = move_toward(_depletion_scale, 0.55, DEPLETION_SPEED * delta)
+		_depletion_alpha = move_toward(_depletion_alpha, 0.35, DEPLETION_SPEED * delta)
+	else:
+		_depletion_scale = move_toward(_depletion_scale, 1.0, DEPLETION_SPEED * delta)
+		_depletion_alpha = move_toward(_depletion_alpha, 1.0, DEPLETION_SPEED * delta)
+
 	queue_redraw()
 	if resource_type == "food" and not _is_depleted and current_amount < max_amount:
 		_regrow_timer += delta
@@ -278,46 +296,148 @@ func set_selected(selected: bool) -> void:
 
 func _draw() -> void:
 	var ratio: float = float(current_amount) / float(max_amount) if max_amount > 0 else 0.0
-	var alpha: float = 0.35 if _is_depleted else 1.0
+	var alpha: float = _depletion_alpha
 	var sway: float = sin(_visual_time * 1.4 + float(grid_pos.x + grid_pos.y)) * 1.5
-	draw_circle(Vector2(0, 9), 12.0, Color(0, 0, 0, 0.18 * alpha))
+	var sc: float = _depletion_scale
+
+	# Shadow beneath resource.
+	draw_circle(Vector2(0, 9 * sc), 12.0 * sc, Color(0, 0, 0, 0.18 * alpha))
 
 	match resource_type:
 		"wood":
-			var trunk_color: Color = Color(0.35, 0.19, 0.08, alpha)
-			var leaf_color: Color = Color(0.12, 0.45 + ratio * 0.18, 0.14, alpha)
-			draw_rect(Rect2(Vector2(-3, -2), Vector2(6, 16)), trunk_color)
-			draw_circle(Vector2(sway, -10), 11.0, leaf_color)
-			draw_circle(Vector2(-7 + sway, -4), 8.0, leaf_color.darkened(0.08))
-			draw_circle(Vector2(7 + sway, -4), 8.0, leaf_color.lightened(0.06))
+			_draw_tree(ratio, alpha, sway, sc)
 		"stone":
-			var rock_color: Color = Color(0.50, 0.50, 0.48, alpha)
-			draw_polygon(
-				PackedVector2Array([Vector2(-14, 7), Vector2(-8, -7), Vector2(5, -12), Vector2(15, -1), Vector2(11, 10), Vector2(-5, 13)]),
-				PackedColorArray([rock_color, rock_color.lightened(0.12), rock_color.lightened(0.20), rock_color, rock_color.darkened(0.14), rock_color.darkened(0.08)])
-			)
-			draw_line(Vector2(-7, -5), Vector2(2, 9), Color(0.25, 0.25, 0.24, alpha), 2.0)
+			_draw_stone(ratio, alpha, sc)
 		"food":
-			var bush_color: Color = Color(0.10, 0.48 + ratio * 0.10, 0.13, alpha)
-			draw_circle(Vector2(-7 + sway * 0.3, 0), 8.0, bush_color)
-			draw_circle(Vector2(3 + sway * 0.3, -4), 10.0, bush_color.lightened(0.06))
-			draw_circle(Vector2(9 + sway * 0.3, 2), 7.0, bush_color.darkened(0.04))
-			for berry in [Vector2(-5, -2), Vector2(4, -7), Vector2(8, 1), Vector2(0, 3)]:
-				draw_circle(berry + Vector2(sway * 0.3, 0), 2.0, Color(0.86, 0.12, 0.10, alpha))
+			_draw_food_bush(ratio, alpha, sway, sc)
 		"gold":
-			var gold_color: Color = Color(0.95, 0.74 + ratio * 0.12, 0.14, alpha)
-			draw_polygon(
-				PackedVector2Array([Vector2(-12, 8), Vector2(-5, -8), Vector2(8, -10), Vector2(15, 5), Vector2(4, 12)]),
-				PackedColorArray([gold_color.darkened(0.16), gold_color.lightened(0.18), gold_color, gold_color.darkened(0.08), gold_color.darkened(0.20)])
-			)
-			draw_line(Vector2(-4, -5), Vector2(8, 5), Color(1.0, 0.95, 0.45, alpha), 2.0)
+			_draw_gold(ratio, alpha, sc)
 		_:
-			draw_circle(Vector2.ZERO, 10.0, RESOURCE_COLORS.get(resource_type, Color.MAGENTA))
+			draw_circle(Vector2.ZERO, 10.0 * sc, RESOURCE_COLORS.get(resource_type, Color.MAGENTA))
 
 	# Draw selection ring when selected.
 	if _selection_ring != null and _selection_ring.visible:
 		draw_circle(Vector2.ZERO, 18.0, Color(1.0, 1.0, 1.0, 0.3))
 		draw_arc(Vector2.ZERO, 18.0, 0, TAU, 64, Color(1.0, 1.0, 0.5, 0.8), 2.0)
+
+
+func _draw_tree(ratio: float, alpha: float, sway: float, sc: float) -> void:
+	var trunk_color: Color = Color(0.35, 0.19, 0.08, alpha)
+	var leaf_color: Color = Color(0.12, 0.45 + ratio * 0.18, 0.14, alpha)
+
+	# Variant determines tree shape.
+	match _visual_variant:
+		0:  # Round canopy tree.
+			draw_rect(Rect2(Vector2(-2.5 * sc, -2 * sc), Vector2(5 * sc, 14 * sc)), trunk_color)
+			draw_circle(Vector2(sway * sc, -10 * sc), 10.0 * sc, leaf_color)
+			draw_circle(Vector2(-6 * sc + sway * sc, -4 * sc), 7.0 * sc, leaf_color.darkened(0.08))
+			draw_circle(Vector2(6 * sc + sway * sc, -4 * sc), 7.0 * sc, leaf_color.lightened(0.06))
+		1:  # Tall narrow tree.
+			draw_rect(Rect2(Vector2(-2 * sc, -1 * sc), Vector2(4 * sc, 16 * sc)), trunk_color)
+			draw_circle(Vector2(sway * sc, -12 * sc), 8.0 * sc, leaf_color)
+			draw_circle(Vector2(-4 * sc + sway * sc, -7 * sc), 6.0 * sc, leaf_color.darkened(0.06))
+			draw_circle(Vector2(4 * sc + sway * sc, -7 * sc), 6.0 * sc, leaf_color.lightened(0.04))
+		2:  # Wide bushy tree.
+			draw_rect(Rect2(Vector2(-3 * sc, -2 * sc), Vector2(6 * sc, 15 * sc)), trunk_color)
+			draw_circle(Vector2(-8 * sc + sway * sc, -6 * sc), 9.0 * sc, leaf_color.darkened(0.04))
+			draw_circle(Vector2(0, -11 * sc), 11.0 * sc, leaf_color)
+			draw_circle(Vector2(8 * sc + sway * sc, -6 * sc), 9.0 * sc, leaf_color.lightened(0.06))
+		3:  # Pine-like.
+			draw_rect(Rect2(Vector2(-2 * sc, 0), Vector2(4 * sc, 13 * sc)), trunk_color)
+			draw_circle(Vector2(sway * sc * 0.5, -10 * sc), 7.0 * sc, leaf_color.darkened(0.04))
+			draw_circle(Vector2(sway * sc * 0.3, -6 * sc), 9.0 * sc, leaf_color)
+		_:  # Default round.
+			draw_rect(Rect2(Vector2(-3 * sc, -2 * sc), Vector2(6 * sc, 16 * sc)), trunk_color)
+			draw_circle(Vector2(sway, -10 * sc), 11.0 * sc, leaf_color)
+			draw_circle(Vector2(-7 * sc + sway, -4 * sc), 8.0 * sc, leaf_color.darkened(0.08))
+			draw_circle(Vector2(7 * sc + sway, -4 * sc), 8.0 * sc, leaf_color.lightened(0.06))
+
+
+func _draw_stone(ratio: float, alpha: float, sc: float) -> void:
+	var rock_color: Color = Color(0.50, 0.50, 0.48, alpha)
+	match _visual_variant:
+		0:  # Large boulder.
+			draw_polygon(
+				PackedVector2Array([
+					Vector2(-14 * sc, 7 * sc), Vector2(-8 * sc, -7 * sc),
+					Vector2(5 * sc, -12 * sc), Vector2(15 * sc, -1 * sc),
+					Vector2(11 * sc, 10 * sc), Vector2(-5 * sc, 13 * sc)
+				]),
+				PackedColorArray([rock_color, rock_color.lightened(0.12), rock_color.lightened(0.20), rock_color, rock_color.darkened(0.14), rock_color.darkened(0.08)])
+			)
+			draw_line(Vector2(-7 * sc, -5 * sc), Vector2(2 * sc, 9 * sc), Color(0.25, 0.25, 0.24, alpha), 2.0 * sc)
+		1:  # Medium flat rock.
+			draw_polygon(
+				PackedVector2Array([
+					Vector2(-12 * sc, 8 * sc), Vector2(-6 * sc, -5 * sc),
+					Vector2(7 * sc, -7 * sc), Vector2(13 * sc, 3 * sc),
+					Vector2(8 * sc, 11 * sc), Vector2(-3 * sc, 12 * sc)
+				]),
+				PackedColorArray([rock_color.darkened(0.06), rock_color.lightened(0.10), rock_color.lightened(0.16), rock_color, rock_color.darkened(0.10), rock_color.darkened(0.04)])
+			)
+		_:  # Small rocks.
+			draw_polygon(
+				PackedVector2Array([
+					Vector2(-10 * sc, 7 * sc), Vector2(-4 * sc, -6 * sc),
+					Vector2(6 * sc, -8 * sc), Vector2(12 * sc, 2 * sc),
+					Vector2(5 * sc, 10 * sc)
+				]),
+				PackedColorArray([rock_color, rock_color.lightened(0.14), rock_color.lightened(0.22), rock_color, rock_color.darkened(0.12)])
+			)
+
+
+func _draw_food_bush(ratio: float, alpha: float, sway: float, sc: float) -> void:
+	var bush_color: Color = Color(0.10, 0.48 + ratio * 0.10, 0.13, alpha)
+	var berry_color: Color = Color(0.86, 0.12, 0.10, alpha)
+	var sw: float = sway * 0.3
+
+	match _visual_variant:
+		0:  # Round bush with berries.
+			draw_circle(Vector2(-7 * sc + sw, 0), 8.0 * sc, bush_color)
+			draw_circle(Vector2(3 * sc + sw, -4 * sc), 10.0 * sc, bush_color.lightened(0.06))
+			draw_circle(Vector2(9 * sc + sw, 2 * sc), 7.0 * sc, bush_color.darkened(0.04))
+			for berry in [Vector2(-5, -2), Vector2(4, -7), Vector2(8, 1), Vector2(0, 3)]:
+				draw_circle(berry * sc + Vector2(sw, 0), 2.0 * sc, berry_color)
+		1:  # Low spreading bush.
+			draw_circle(Vector2(-8 * sc + sw, 2 * sc), 7.0 * sc, bush_color.darkened(0.04))
+			draw_circle(Vector2(0, -2 * sc + sw * 0.5), 9.0 * sc, bush_color)
+			draw_circle(Vector2(8 * sc + sw, 2 * sc), 7.0 * sc, bush_color.lightened(0.04))
+			for berry in [Vector2(-6, 0), Vector2(2, -5), Vector2(7, 1), Vector2(-2, 4)]:
+				draw_circle(berry * sc + Vector2(sw, 0), 1.8 * sc, berry_color)
+		_:  # Tall bush.
+			draw_circle(Vector2(-5 * sc + sw, -3 * sc), 9.0 * sc, bush_color)
+			draw_circle(Vector2(4 * sc + sw, -6 * sc), 11.0 * sc, bush_color.lightened(0.06))
+			draw_circle(Vector2(7 * sc + sw, 0), 7.0 * sc, bush_color.darkened(0.06))
+			for berry in [Vector2(-4, -5), Vector2(3, -9), Vector2(8, -2), Vector2(-1, 0)]:
+				draw_circle(berry * sc + Vector2(sw, 0), 2.2 * sc, berry_color)
+
+
+func _draw_gold(ratio: float, alpha: float, sc: float) -> void:
+	var gold_color: Color = Color(0.95, 0.74 + ratio * 0.12, 0.14, alpha)
+	match _visual_variant:
+		0:  # Large gold nugget.
+			draw_polygon(
+				PackedVector2Array([
+					Vector2(-12 * sc, 8 * sc), Vector2(-5 * sc, -8 * sc),
+					Vector2(8 * sc, -10 * sc), Vector2(15 * sc, 5 * sc),
+					Vector2(4 * sc, 12 * sc)
+				]),
+				PackedColorArray([gold_color.darkened(0.16), gold_color.lightened(0.18), gold_color, gold_color.darkened(0.08), gold_color.darkened(0.20)])
+			)
+			draw_line(Vector2(-4 * sc, -5 * sc), Vector2(8 * sc, 5 * sc), Color(1.0, 0.95, 0.45, alpha), 2.0 * sc)
+		_:  # Gold vein / small nuggets.
+			draw_polygon(
+				PackedVector2Array([
+					Vector2(-10 * sc, 7 * sc), Vector2(-3 * sc, -6 * sc),
+					Vector2(9 * sc, -7 * sc), Vector2(13 * sc, 4 * sc),
+					Vector2(3 * sc, 10 * sc)
+				]),
+				PackedColorArray([gold_color.darkened(0.12), gold_color.lightened(0.14), gold_color, gold_color.darkened(0.06), gold_color.darkened(0.16)])
+			)
+			draw_line(Vector2(-3 * sc, -4 * sc), Vector2(7 * sc, 4 * sc), Color(1.0, 0.95, 0.45, alpha), 1.5 * sc)
+			# Sparkle.
+			var sparkle_alpha: float = (sin(_visual_time * 3.0 + float(grid_pos.x)) * 0.5 + 0.5) * alpha
+			draw_circle(Vector2(5 * sc, -3 * sc), 2.0 * sc, Color(1.0, 1.0, 0.7, sparkle_alpha * 0.6))
 
 # =============================================================================
 # Helpers

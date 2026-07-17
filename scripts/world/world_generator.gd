@@ -27,35 +27,46 @@ const DEFAULT_MAP_SIZE: Vector2i = Vector2i(120, 120)
 const CELL_SIZE: int = 32
 
 # --- Terrain Thresholds ---
-const DEEP_WATER_MAX: float = 0.3
-const WATER_MAX: float = 0.4
-const SAND_MAX: float = 0.45
-const GRASS_MAX: float = 0.7
-const FOREST_MAX: float = 0.85
+const DEEP_WATER_MAX: float = 0.28
+const WATER_MAX: float = 0.38
+const SAND_MAX: float = 0.44
+const GRASS_MAX: float = 0.68
+const FOREST_MAX: float = 0.84
 # Above FOREST_MAX = MOUNTAIN
 
 # --- Moisture Thresholds ---
-const MOISTURE_FOREST_MIN: float = 0.55
-const MOISTURE_SPARSE_MAX: float = 0.3
+const MOISTURE_FOREST_MIN: float = 0.50
+const MOISTURE_LUSH_MIN: float = 0.65
+const MOISTURE_SPARSE_MAX: float = 0.32
+
+# --- Coastline ---
+const BEACH_NOISE_SCALE: float = 0.04
+const BEACH_MIN_WIDTH: float = 0.01
+const BEACH_MAX_WIDTH: float = 0.06
 
 # --- Starting Area ---
 const START_SAFE_RADIUS: int = 12
 
 # --- Resource Density (per 100 valid cells) ---
-const TREE_DENSITY: float = 3.5
-const STONE_DENSITY: float = 1.2
-const FOOD_DENSITY: float = 2.0
-const GOLD_DENSITY: float = 0.3
+const TREE_DENSITY: float = 4.2
+const STONE_DENSITY: float = 1.5
+const FOOD_DENSITY: float = 2.5
+const GOLD_DENSITY: float = 0.35
 
 # --- Resource Amounts ---
 const TREE_CLUSTER_MIN: int = 3
-const TREE_CLUSTER_MAX: int = 8
+const TREE_CLUSTER_MAX: int = 10
 const TREE_AMOUNT_PER: int = 100
+const STONE_CLUSTER_MIN: int = 1
+const STONE_CLUSTER_MAX: int = 3
 const STONE_AMOUNT: int = 200
 const FOOD_AMOUNT: int = 80
 const FOOD_REGROW_RATE: int = 1
 const FOOD_REGROW_INTERVAL: float = 30.0
 const GOLD_AMOUNT: int = 150
+
+# --- Resource Spacing (min cells between same-type nodes) ---
+const RESOURCE_MIN_SPACING: int = 2
 
 # =============================================================================
 # Simple Value Noise Implementation
@@ -144,6 +155,8 @@ class ValueNoise:
 var _elevation_noise: ValueNoise
 var _moisture_noise: ValueNoise
 var _detail_noise: ValueNoise
+var _beach_noise: ValueNoise
+var _resource_noise: ValueNoise
 var _world_data: WorldData
 
 # =============================================================================
@@ -164,6 +177,8 @@ func generate(seed_value: int, size: Vector2i = DEFAULT_MAP_SIZE) -> WorldData:
 	_elevation_noise = ValueNoise.new(seed_value)
 	_moisture_noise = ValueNoise.new(seed_value + 7919)
 	_detail_noise = ValueNoise.new(seed_value + 6271)
+	_beach_noise = ValueNoise.new(seed_value + 4201)
+	_resource_noise = ValueNoise.new(seed_value + 2909)
 
 	generation_progress.emit(0.05, "generating_terrain")
 	_generate_terrain()
@@ -191,6 +206,7 @@ func _generate_terrain() -> void:
 	var scale_elev: float = 0.025
 	var scale_moist: float = 0.03
 	var scale_detail: float = 0.06
+	var scale_beach: float = BEACH_NOISE_SCALE
 	var total_cells: float = float(w * h)
 	var cell_index: int = 0
 
@@ -216,11 +232,18 @@ func _generate_terrain() -> void:
 			)
 			detail = (detail + 1.0) * 0.5
 
-			# Apply coastline distortion using detail noise.
-			var elev_modified: float = elev + (detail - 0.5) * 0.08
+			# Beach width noise — varies coastline smoothness.
+			var beach_width: float = _beach_noise.get_fbm(
+				float(x) * scale_beach, float(y) * scale_beach, 3, 2.0, 0.5
+			)
+			beach_width = (beach_width + 1.0) * 0.5
+			var beach_offset: float = BEACH_MIN_WIDTH + beach_width * (BEACH_MAX_WIDTH - BEACH_MIN_WIDTH)
+
+			# Apply coastline distortion using detail noise + beach variation.
+			var elev_modified: float = elev + (detail - 0.5) * 0.10
 
 			# Determine terrain type.
-			var terrain: int = _classify_terrain(elev_modified, moisture)
+			var terrain: int = _classify_terrain(elev_modified, moisture, beach_offset)
 			row.append(terrain)
 			cell_index += 1
 
@@ -232,24 +255,28 @@ func _generate_terrain() -> void:
 			generation_progress.emit(pct, "generating_terrain")
 
 
-func _classify_terrain(elevation: float, moisture: float) -> int:
+func _classify_terrain(elevation: float, moisture: float, beach_offset: float = 0.04) -> int:
+	# Deep water.
 	if elevation < DEEP_WATER_MAX:
 		return WorldData.Terrain.DEEP_WATER
+	# Water.
 	if elevation < WATER_MAX:
 		return WorldData.Terrain.WATER
-	if elevation < SAND_MAX:
+	# Beach/sand — width varies by coastline noise.
+	if elevation < SAND_MAX + beach_offset:
 		return WorldData.Terrain.SAND
+	# Grassland — density varies by moisture.
 	if elevation < GRASS_MAX:
-		# Grass vs sparse based on moisture.
-		if moisture < MOISTURE_SPARSE_MAX:
-			return WorldData.Terrain.GRASS
+		if moisture >= MOISTURE_LUSH_MIN:
+			# Very high moisture at moderate elevation = scattered trees on grass.
+			return WorldData.Terrain.FOREST if moisture >= 0.72 else WorldData.Terrain.GRASS
 		return WorldData.Terrain.GRASS
+	# Forest — strong moisture dependence.
 	if elevation < FOREST_MAX:
-		# Forest threshold depends on moisture.
 		if moisture >= MOISTURE_FOREST_MIN:
 			return WorldData.Terrain.FOREST
-		# Moderate moisture = scattered trees on grass.
-		return WorldData.Terrain.GRASS if moisture < MOISTURE_FOREST_MIN else WorldData.Terrain.FOREST
+		# Drier highlands = sparse grass instead of forest.
+		return WorldData.Terrain.GRASS
 	# High elevation = mountain.
 	return WorldData.Terrain.MOUNTAIN
 
@@ -336,14 +363,22 @@ func _spawn_resources() -> void:
 	var grass_tree_count: int = int(float(grass_cells.size()) * 0.8 / 100.0)
 	_spawn_scattered_resources(rng, grass_cells, "wood", grass_tree_count, TREE_AMOUNT_PER)
 
-	# --- Stone deposits near mountains ---
+	# --- Stone deposits near mountains (clustered) ---
 	var stone_target: int = int(float(mountain_cells.size()) * STONE_DENSITY / 100.0)
-	_spawn_near_terrain(rng, mountain_cells, grass_cells, "stone", stone_target, STONE_AMOUNT, 5)
+	_spawn_clustered_resources(
+		rng, mountain_cells, "stone", stone_target,
+		STONE_CLUSTER_MIN, STONE_CLUSTER_MAX, STONE_AMOUNT
+	)
+	# Also place stone on grass near mountains for transition zones.
+	var grass_stone_count: int = int(float(grass_cells.size()) * 0.6 / 100.0)
+	_spawn_near_terrain(rng, mountain_cells, grass_cells, "stone", grass_stone_count, STONE_AMOUNT, 4)
 	if _world_data.get_total_resource_amount("stone") <= 0:
 		var fallback_stone_count: int = maxi(int(float(grass_cells.size()) * 0.8 / 100.0), 8)
 		_spawn_scattered_resources(rng, grass_cells, "stone", fallback_stone_count, STONE_AMOUNT)
 
-	# --- Food (berry bushes) in grasslands ---
+	# --- Food (berry bushes) near water and in grasslands ---
+	var food_water_count: int = int(float(grass_cells.size()) * 1.2 / 100.0)
+	_spawn_near_terrain(rng, sand_cells, grass_cells, "food", food_water_count, FOOD_AMOUNT, 4)
 	var food_target: int = int(float(grass_cells.size()) * FOOD_DENSITY / 100.0)
 	_spawn_scattered_resources(rng, grass_cells, "food", food_target, FOOD_AMOUNT)
 
@@ -420,7 +455,17 @@ func _spawn_scattered_resources(
 	var occupied: Dictionary = {}
 	# Build a set of cells already occupied by existing resources.
 	for node_data: Dictionary in _world_data.resource_nodes:
-		occupied[node_data.get("grid_pos", Vector2i(-999, -999))] = true
+		var pos: Vector2i = node_data.get("grid_pos", Vector2i(-999, -999))
+		occupied[pos] = true
+		# Also mark spacing neighbors to enforce minimum distance.
+		if RESOURCE_MIN_SPACING > 0:
+			for dy in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+				for dx in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+					if dx == 0 and dy == 0:
+						continue
+					var spacing_cell: Vector2i = Vector2i(pos.x + dx, pos.y + dy)
+					if not occupied.has(spacing_cell):
+						occupied[spacing_cell] = "spacing"
 
 	var shuffled: Array[Vector2i] = cells.duplicate()
 	# Fisher-Yates shuffle.
@@ -433,9 +478,19 @@ func _spawn_scattered_resources(
 	for cell: Vector2i in shuffled:
 		if placed >= target_count:
 			break
-		if occupied.has(cell):
+		# Skip if occupied by another resource or within spacing zone.
+		if occupied.has(cell) and occupied[cell] != "spacing":
 			continue
 		occupied[cell] = true
+		# Mark spacing neighbors.
+		if RESOURCE_MIN_SPACING > 0:
+			for dy in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+				for dx in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+					if dx == 0 and dy == 0:
+						continue
+					var spacing_cell: Vector2i = Vector2i(cell.x + dx, cell.y + dy)
+					if not occupied.has(spacing_cell):
+						occupied[spacing_cell] = "spacing"
 		_world_data.add_resource_node(resource_type, cell, amount)
 		placed += 1
 
@@ -449,7 +504,7 @@ func _spawn_near_terrain(
 	amount: int,
 	max_distance: int
 ) -> void:
-	# Find grass cells that are close to the target terrain.
+	# Find valid cells that are close to the target terrain.
 	var candidates: Array[Vector2i] = []
 	var near_set: Dictionary = {}
 	for cell: Vector2i in near_cells:
@@ -465,20 +520,42 @@ func _spawn_near_terrain(
 			if candidates.size() > 0 and candidates.back() == cell:
 				break
 
-	# Shuffle and pick from candidates.
-	candidates.shuffle()
-	rng.seed = rng.seed + 1
+	# Shuffle and pick from candidates with spacing enforcement.
+	var shuffled: Array[Vector2i] = candidates.duplicate()
+	for i in range(shuffled.size() - 1, 0, -1):
+		var j: int = rng.randi_range(0, i)
+		var tmp: Vector2i = shuffled[i]
+		shuffled[i] = shuffled[j]
+		shuffled[j] = tmp
+
 	var occupied: Dictionary = {}
 	for node_data: Dictionary in _world_data.resource_nodes:
-		occupied[node_data.get("grid_pos", Vector2i(-999, -999))] = true
+		var pos: Vector2i = node_data.get("grid_pos", Vector2i(-999, -999))
+		occupied[pos] = true
+		if RESOURCE_MIN_SPACING > 0:
+			for dy in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+				for dx in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+					if dx == 0 and dy == 0:
+						continue
+					var spacing_cell: Vector2i = Vector2i(pos.x + dx, pos.y + dy)
+					if not occupied.has(spacing_cell):
+						occupied[spacing_cell] = "spacing"
 
 	var placed: int = 0
-	for cell: Vector2i in candidates:
+	for cell: Vector2i in shuffled:
 		if placed >= target_count:
 			break
-		if occupied.has(cell):
+		if occupied.has(cell) and occupied[cell] != "spacing":
 			continue
 		occupied[cell] = true
+		if RESOURCE_MIN_SPACING > 0:
+			for dy in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+				for dx in range(-RESOURCE_MIN_SPACING, RESOURCE_MIN_SPACING + 1):
+					if dx == 0 and dy == 0:
+						continue
+					var spacing_cell: Vector2i = Vector2i(cell.x + dx, cell.y + dy)
+					if not occupied.has(spacing_cell):
+						occupied[spacing_cell] = "spacing"
 		_world_data.add_resource_node(resource_type, cell, amount)
 		placed += 1
 

@@ -247,6 +247,16 @@ static func _draw_building(building_type: String, player_id: int, grid_size: Vec
 	return img
 
 
+static func get_unit_preview(unit_type: String, player_id: int = 0) -> Texture2D:
+	var img: Image = _draw_unit(unit_type, player_id, "idle", 0, 4)
+	return _texture_from_image(img)
+
+
+static func get_building_preview(building_type: String, player_id: int = 0, grid_size: Vector2i = Vector2i(2, 2)) -> Texture2D:
+	var img: Image = _draw_building(building_type, player_id, grid_size, "active", 0, 4)
+	return _texture_from_image(img)
+
+
 static func _texture_from_image(img: Image) -> Texture2D:
 	return ImageTexture.create_from_image(img)
 

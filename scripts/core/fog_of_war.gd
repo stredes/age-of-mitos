@@ -17,17 +17,20 @@ const VISIBLE: int = 2
 
 ## Fog colors mapped to visibility states.
 const COLOR_UNDISCOVERED: Color = Color(0.0, 0.0, 0.0, 1.0)
-const COLOR_EXPLORED: Color = Color(0.0, 0.0, 0.0, 0.6)
+const COLOR_EXPLORED: Color = Color(0.0, 0.0, 0.0, 0.55)
 const COLOR_VISIBLE: Color = Color(0.0, 0.0, 0.0, 0.0)
 
 ## Edge blend color for smoother transitions at visibility boundaries.
-const COLOR_EDGE: Color = Color(0.0, 0.0, 0.0, 0.3)
+const COLOR_EDGE: Color = Color(0.0, 0.0, 0.0, 0.28)
 
 ## Default sight range in grid cells for units without explicit range.
 const DEFAULT_SIGHT_RANGE: int = 6
 
 ## Number of edge cells to blend for smooth transitions.
-const EDGE_BLEND_WIDTH: int = 1
+const EDGE_BLEND_WIDTH: int = 2
+
+## Speed of smooth reveal/explore transitions (alpha per second).
+const TRANSITION_SPEED: float = 4.0
 
 # =============================================================================
 # Configuration
@@ -63,6 +66,10 @@ signal area_first_revealed(center: Vector2i, radius: int)
 ## Each value is a PackedByteArray of length (grid_size.x * grid_size.y).
 ## Stored in row-major order: index = y * grid_size.x + x
 var _fog_data: Dictionary = {}
+
+## Per-cell transition alpha (0.0 = fully fogged, 1.0 = fully revealed).
+## Used for smooth fading between EXPLORED and VISIBLE states.
+var _transition_alpha: PackedFloat32Array = PackedFloat32Array()
 
 ## The Image used to render fog. One pixel per grid cell.
 var _fog_image: Image = null
@@ -100,7 +107,27 @@ func _ready() -> void:
 	EventBus.game_started.connect(_on_game_started)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	# Update transition alpha for smooth reveals.
+	var total: int = grid_size.x * grid_size.y
+	for i in range(total):
+		var target_alpha: float = 0.0
+		var fog: PackedByteArray = _fog_data.get(local_player_id, PackedByteArray())
+		if fog.size() > i:
+			match fog[i]:
+				VISIBLE:
+					target_alpha = 1.0
+				EXPLORED:
+					target_alpha = 0.5
+				_:
+					target_alpha = 0.0
+		var current: float = _transition_alpha[i]
+		if not is_equal_approx(current, target_alpha):
+			_transition_alpha[i] = move_toward(current, target_alpha, TRANSITION_SPEED * delta)
+			var x: int = i % grid_size.x
+			var y: int = i / grid_size.x
+			_dirty_cells[Vector2i(x, y)] = true
+
 	if _needs_full_redraw:
 		_full_redraw()
 		_needs_full_redraw = false
@@ -123,6 +150,10 @@ func _initialize_fog_image() -> void:
 		Vector2.ZERO,
 		Vector2(grid_size.x * cell_pixel_size.x, grid_size.y * cell_pixel_size.y)
 	)
+	# Initialize transition alpha map (all cells start fully fogged).
+	var total: int = grid_size.x * grid_size.y
+	_transition_alpha.resize(total)
+	_transition_alpha.fill(0.0)
 
 
 ## Initialize fog data for a specific player.
@@ -212,6 +243,7 @@ func update_visibility(unit_positions: Array[Vector2i], building_positions: Arra
 ## Reveal all cells within a radius of a center cell.
 func reveal_area(center: Vector2i, radius: int) -> void:
 	var radius_sq: float = float(radius * radius)
+	var blend_sq: float = float((radius + EDGE_BLEND_WIDTH) * (radius + EDGE_BLEND_WIDTH))
 	for dy in range(-radius - EDGE_BLEND_WIDTH, radius + EDGE_BLEND_WIDTH + 1):
 		for dx in range(-radius - EDGE_BLEND_WIDTH, radius + EDGE_BLEND_WIDTH + 1):
 			var cell: Vector2i = center + Vector2i(dx, dy)
@@ -223,10 +255,16 @@ func reveal_area(center: Vector2i, radius: int) -> void:
 			if dist_sq <= radius_sq:
 				# Inside main radius — fully visible.
 				_set_cell_state(cell, VISIBLE)
-			elif enable_edge_blending and dist_sq <= float((radius + EDGE_BLEND_WIDTH) * (radius + EDGE_BLEND_WIDTH)):
+			elif enable_edge_blending and dist_sq <= blend_sq:
 				# Edge zone — only upgrade, never downgrade within edge.
 				var current: int = _get_cell_state(cell, local_player_id)
 				if current != VISIBLE:
+					_set_cell_state(cell, EXPLORED)
+			else:
+				# Outer edge — smooth blend toward fog.
+				var current: int = _get_cell_state(cell, local_player_id)
+				if current == VISIBLE:
+					# Cells just outside vision — mark as explored for smooth transition.
 					_set_cell_state(cell, EXPLORED)
 
 	# Mark the image as needing an update for the affected region.
@@ -321,12 +359,16 @@ func _full_redraw() -> void:
 		for x in range(grid_size.x):
 			var idx: int = y * grid_size.x + x
 			var state: int = fog[idx]
+			var trans_alpha: float = _transition_alpha[idx] if idx < _transition_alpha.size() else 0.0
+
 			var color: Color
 			match state:
 				UNDISCOVERED:
 					color = COLOR_UNDISCOVERED
 				EXPLORED:
-					color = COLOR_EXPLORED
+					# Blend between EXPLORED and VISIBLE using transition alpha.
+					var explored_alpha: float = lerp(COLOR_EXPLORED.a, COLOR_VISIBLE.a, trans_alpha)
+					color = Color(0.0, 0.0, 0.0, explored_alpha)
 				VISIBLE:
 					color = COLOR_VISIBLE
 				_:
@@ -350,12 +392,15 @@ func _flush_dirty_cells() -> void:
 		var y: int = cell_key.y
 		var idx: int = y * grid_size.x + x
 		var state: int = fog[idx]
+		var trans_alpha: float = _transition_alpha[idx] if idx < _transition_alpha.size() else 0.0
+
 		var color: Color
 		match state:
 			UNDISCOVERED:
 				color = COLOR_UNDISCOVERED
 			EXPLORED:
-				color = COLOR_EXPLORED
+				var explored_alpha: float = lerp(COLOR_EXPLORED.a, COLOR_VISIBLE.a, trans_alpha)
+				color = Color(0.0, 0.0, 0.0, explored_alpha)
 			VISIBLE:
 				color = COLOR_VISIBLE
 			_:
@@ -433,3 +478,6 @@ func _on_game_started(_player_id: int) -> void:
 	_fog_data.clear()
 	_initialize_fog_image()
 	_needs_full_redraw = true
+	var total: int = grid_size.x * grid_size.y
+	_transition_alpha.resize(total)
+	_transition_alpha.fill(0.0)
