@@ -1,27 +1,40 @@
 extends Control
 
-const MINIMAP_SIZE: Vector2 = Vector2(120, 120)
+const MINIMAP_SIZE: Vector2 = Vector2(160, 160)
 const DOT_PLAYER: Color = Color(0.2, 0.4, 1.0)
 const DOT_ENEMY: Color = Color(1.0, 0.2, 0.2)
 const DOT_NEUTRAL: Color = Color(0.5, 0.5, 0.5)
 const DOT_UNIT_SIZE: float = 2.0
 const DOT_BUILDING_SIZE: float = 4.0
-const CAMERA_RECT_COLOR: Color = Color(1.0, 1.0, 1.0, 0.8)
+const CAMERA_RECT_COLOR: Color = Color(1.0, 1.0, 1.0, 0.9)
 const BG_COLOR: Color = Color(0.05, 0.05, 0.1, 0.85)
 const BORDER_COLOR: Color = Color(0.3, 0.3, 0.3, 1.0)
-const FOG_COLOR: Color = Color(0.0, 0.0, 0.0, 0.6)
+const TERRAIN_COLORS: Dictionary = {
+	0: Color(0.05, 0.15, 0.45),   # DEEP_WATER
+	1: Color(0.15, 0.35, 0.7),    # WATER
+	2: Color(0.85, 0.78, 0.55),   # SAND
+	3: Color(0.28, 0.55, 0.2),    # GRASS
+	4: Color(0.12, 0.35, 0.1),    # FOREST
+	5: Color(0.45, 0.42, 0.38),   # MOUNTAIN
+}
 
 var world_size: Vector2 = Vector2(4096, 4096)
 var _update_timer: float = 0.0
-var _update_interval: float = 0.5
+var _update_interval: float = 0.25
 var _cached_dots: Array = []
 var _camera: Camera2D = null
+var _terrain_image: Image = null
+var _terrain_texture: ImageTexture = null
+var _is_dragging: bool = false
+var _grid_manager: Node = null
 
 
 func _ready() -> void:
 	custom_minimum_size = MINIMAP_SIZE
 	size = MINIMAP_SIZE
 	_find_camera()
+	_find_grid_manager()
+	_build_terrain_image()
 	update_minimap()
 
 
@@ -34,12 +47,46 @@ func _process(delta: float) -> void:
 
 
 func _find_camera() -> void:
-	if has_node("/root/GameWorld/Camera2D"):
-		_camera = get_node("/root/GameWorld/Camera2D")
+	if _camera == null or not is_instance_valid(_camera):
+		_camera = get_node_or_null("/root/GameWorld/Camera2D")
 
 
-func set_world_size(size: Vector2) -> void:
-	world_size = size
+func _find_grid_manager() -> void:
+	if _grid_manager == null or not is_instance_valid(_grid_manager):
+		_grid_manager = get_node_or_null("/root/GameWorld/GridManager")
+
+
+func set_world_size(new_size: Vector2) -> void:
+	world_size = new_size
+	_build_terrain_image()
+
+
+func _build_terrain_image() -> void:
+	var grid_dims: Vector2i = Vector2i(128, 128)
+	if _grid_manager != null and _grid_manager.get("grid_dimensions") != null:
+		grid_dims = _grid_manager.grid_dimensions
+
+	_terrain_image = Image.create(grid_dims.x, grid_dims.y, false, Image.FORMAT_RGBA8)
+
+	if _grid_manager == null or _grid_manager.get("get_cell_walkability") == null:
+		_terrain_image.fill(TERRAIN_COLORS[3])
+		_terrain_texture = ImageTexture.create_from_image(_terrain_image)
+		return
+
+	for y in range(grid_dims.y):
+		for x in range(grid_dims.x):
+			var cell: Vector2i = Vector2i(x, y)
+			var walk_state: int = _grid_manager.get_cell_walkability(cell)
+			var terrain_color: Color = TERRAIN_COLORS[3]
+			if walk_state == 1:
+				terrain_color = TERRAIN_COLORS[1]
+			elif walk_state == 2:
+				terrain_color = TERRAIN_COLORS[5]
+			elif walk_state == 0:
+				terrain_color = TERRAIN_COLORS[3]
+			_terrain_image.set_pixel(x, y, terrain_color)
+
+	_terrain_texture = ImageTexture.create_from_image(_terrain_image)
 
 
 func update_minimap() -> void:
@@ -103,6 +150,9 @@ func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), BG_COLOR, true)
 	draw_rect(Rect2(Vector2.ZERO, size), BORDER_COLOR, false, 2.0)
 
+	if _terrain_texture != null:
+		draw_texture_rect(_terrain_texture, Rect2(Vector2.ZERO, size), false)
+
 	for dot: Dictionary in _cached_dots:
 		var minimap_pos: Vector2 = world_to_minimap(dot["pos"])
 		if minimap_pos.x < 0 or minimap_pos.x > size.x:
@@ -112,7 +162,6 @@ func _draw() -> void:
 		draw_circle(minimap_pos, dot["size"], dot["color"])
 
 	_draw_camera_rect()
-	_draw_fog_overlay()
 
 
 func _draw_camera_rect() -> void:
@@ -139,24 +188,26 @@ func _draw_camera_rect() -> void:
 	draw_rect(rect, CAMERA_RECT_COLOR, false, 1.5)
 
 
-func _draw_fog_overlay() -> void:
-	var fog_of_war: Node = get_node_or_null("/root/GameWorld/FogOfWar")
-	if fog_of_war == null:
-		return
-	if not fog_of_war.has_method("get"):
-		return
-
-
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-			_handle_minimap_click(event.position)
+			_is_dragging = true
+			_move_camera_to_click(event.position)
+		elif event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			_is_dragging = false
+	elif event is InputEventMouseMotion and _is_dragging:
+		_move_camera_to_click(event.position)
 	elif event is InputEventScreenTouch:
 		if event.pressed:
-			_handle_minimap_click(event.position)
+			_is_dragging = true
+			_move_camera_to_click(event.position)
+		else:
+			_is_dragging = false
+	elif event is InputEventScreenDrag:
+		_move_camera_to_click(event.position)
 
 
-func _handle_minimap_click(click_pos: Vector2) -> void:
+func _move_camera_to_click(click_pos: Vector2) -> void:
 	var world_pos: Vector2 = minimap_to_world(click_pos)
 	world_pos.x = clampf(world_pos.x, 0.0, world_size.x)
 	world_pos.y = clampf(world_pos.y, 0.0, world_size.y)

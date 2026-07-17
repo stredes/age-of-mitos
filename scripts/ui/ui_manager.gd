@@ -12,6 +12,10 @@ var building_panel: Control = null
 var victory_screen: Control = null
 var tech_tree_panel: Control = null
 var diplomacy_panel: Control = null
+var population_display: PanelContainer = null
+var quick_action_bar: HBoxContainer = null
+var unit_portrait: PanelContainer = null
+var stance_button: Button = null
 var _pause_menu: Control = null
 var _open_menu: String = ""
 
@@ -31,6 +35,10 @@ func _find_ui_nodes() -> void:
 	tooltip_system = _find_node_recursive("/root/GameWorld/UILayer", "TooltipSystem") as PanelContainer
 	notification_system = _find_node_recursive("/root/GameWorld", "NotificationSystem")
 	building_panel = _find_node_recursive("/root/GameWorld/UILayer", "BuildingPanel") as Control
+	population_display = _find_node_recursive("/root/GameWorld/UILayer", "PopulationDisplay") as PanelContainer
+	quick_action_bar = _find_node_recursive("/root/GameWorld/UILayer", "QuickActionBar") as HBoxContainer
+	unit_portrait = _find_node_recursive("/root/GameWorld/UILayer", "UnitPortrait") as PanelContainer
+	stance_button = _find_node_recursive("/root/GameWorld/UILayer", "StanceButton") as Button
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
@@ -296,6 +304,10 @@ func _on_selection_changed(selected_unit_ids: Array, selected_building_ids: Arra
 			command_card.show_selection([], -1)
 		if building_panel and building_panel.has_method("hide_building"):
 			building_panel.hide_building()
+		if unit_portrait and unit_portrait.has_method("show_empty"):
+			unit_portrait.show_empty()
+		if stance_button:
+			stance_button.visible = false
 		_close_all_menus()
 		return
 
@@ -305,6 +317,26 @@ func _on_selection_changed(selected_unit_ids: Array, selected_building_ids: Arra
 			close_train_menu()
 		if building_panel and building_panel.has_method("hide_building"):
 			building_panel.hide_building()
+
+	# Show unit portrait for single unit selection.
+	if selected_unit_ids.size() == 1 and unit_portrait != null and unit_portrait.has_method("show_unit"):
+		var uid: int = selected_unit_ids[0]
+		var unit_node: Node = _find_unit_by_id(uid)
+		if unit_node != null:
+			var unit_type: String = unit_node.get("unit_type") if unit_node.has_method("get") and unit_node.get("unit_type") != null else ""
+			unit_portrait.show_unit(unit_type, unit_node)
+		if stance_button:
+			stance_button.visible = true
+	elif selected_unit_ids.size() > 1:
+		if unit_portrait and unit_portrait.has_method("show_empty"):
+			unit_portrait.show_empty()
+		if stance_button:
+			stance_button.visible = true
+	else:
+		if unit_portrait and unit_portrait.has_method("show_empty"):
+			unit_portrait.show_empty()
+		if stance_button:
+			stance_button.visible = false
 
 	if selection_panel:
 		if selected_unit_ids.size() > 0:
