@@ -7,6 +7,7 @@ var train_menu: Control = null
 var selection_panel: Control = null
 var victory_screen: Control = null
 var tech_tree_panel: Control = null
+var diplomacy_panel: Control = null
 var _pause_menu: Control = null
 var _open_menu: String = ""
 
@@ -24,6 +25,7 @@ func _find_ui_nodes() -> void:
 	selection_panel = _find_node_recursive("/root/GameWorld/UILayer", "SelectionPanel") as Control
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
+	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
 
 	if hud and hud.has_signal("build_menu_requested"):
 		if not hud.build_menu_requested.is_connected(open_build_menu):
@@ -367,4 +369,15 @@ func is_any_overlay_visible() -> bool:
 		return true
 	if tech_tree_panel and tech_tree_panel.visible:
 		return true
+	if diplomacy_panel and diplomacy_panel.visible:
+		return true
 	return false
+
+
+func toggle_diplomacy() -> void:
+	if diplomacy_panel == null:
+		return
+	if diplomacy_panel.visible and diplomacy_panel.has_method("close"):
+		diplomacy_panel.close()
+	elif diplomacy_panel.has_method("open"):
+		diplomacy_panel.open()

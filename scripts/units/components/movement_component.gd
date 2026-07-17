@@ -127,6 +127,7 @@ func move_along_path(delta: float) -> void:
 
 	var move_dir: Vector2 = direction.normalized()
 	var speed_mult: float = _get_terrain_multiplier()
+	speed_mult *= _get_weather_speed_modifier()
 	var desired_speed: float = speed * speed_mult
 
 	if _is_unit_ahead(move_dir):
@@ -196,6 +197,15 @@ func _get_terrain_multiplier() -> float:
 			terrain_name = "grass"
 
 	return TERRAIN_SPEED_MULTIPLIERS.get(terrain_name, 1.0)
+
+
+func _get_weather_speed_modifier() -> float:
+	var weather: Node = get_node_or_null("/root/GameWorld/WeatherSystem")
+	if weather == null:
+		weather = get_node_or_null("/root/GameWorld/World/WeatherSystem")
+	if weather != null and weather.has_method("get_speed_modifier"):
+		return weather.get_speed_modifier()
+	return 1.0
 
 
 func _is_unit_ahead(move_direction: Vector2) -> bool:

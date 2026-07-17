@@ -61,7 +61,7 @@ const DUST_MOTE_DAY_THRESHOLD: float = 0.15
 @export var cloud_shadows_enabled: bool = true
 @export var bird_flocks_enabled: bool = true
 @export var animals_enabled: bool = true
-@export var day_night_enabled: bool = true
+@export var day_night_enabled: bool = false
 @export var world_bounds: Rect2 = Rect2(-2000, -2000, 4000, 4000)
 
 # --- Node References ---
@@ -142,7 +142,8 @@ func _ready() -> void:
 	_register_water_nodes()
 	_register_grass_nodes()
 	_create_cloud_shadows()
-	_create_day_night_overlay()
+	if day_night_enabled:
+		_create_day_night_overlay()
 	_create_ambient_animals()
 	_create_fireflies()
 	_create_dust_motes()

@@ -726,3 +726,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				var ui_mgr: Node = get_node_or_null("UILayer/UIManager")
 				if ui_mgr and ui_mgr.has_method("toggle_tech_tree"):
 					ui_mgr.toggle_tech_tree()
+			KEY_D:
+				var ui_mgr: Node = get_node_or_null("UILayer/UIManager")
+				if ui_mgr and ui_mgr.has_method("toggle_diplomacy"):
+					ui_mgr.toggle_diplomacy()

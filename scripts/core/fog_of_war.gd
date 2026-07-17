@@ -229,14 +229,18 @@ func update_visibility(unit_positions: Array[Vector2i], building_positions: Arra
 	# Step 1: Mark all currently VISIBLE cells as EXPLORED.
 	_reset_to_explored()
 
+	# Apply weather sight modifier.
+	var weather_mod: float = _get_weather_sight_modifier()
+
 	# Step 2: Reveal areas around all units and buildings.
 	for cell: Vector2i in unit_positions:
 		var range_val: int = sight_ranges.get(cell, DEFAULT_SIGHT_RANGE)
+		range_val = maxi(1, int(float(range_val) * weather_mod))
 		reveal_area(cell, range_val)
 
 	for cell: Vector2i in building_positions:
-		# Buildings typically have a larger sight range.
 		var range_val: int = sight_ranges.get(cell, DEFAULT_SIGHT_RANGE + 2)
+		range_val = maxi(1, int(float(range_val) * weather_mod))
 		reveal_area(cell, range_val)
 
 
@@ -409,6 +413,19 @@ func _flush_dirty_cells() -> void:
 
 	_fog_texture.update(_fog_image)
 	_dirty_cells.clear()
+
+# =============================================================================
+# Weather Integration
+# =============================================================================
+
+func _get_weather_sight_modifier() -> float:
+	var weather: Node = get_node_or_null("/root/GameWorld/WeatherSystem")
+	if weather == null:
+		weather = get_node_or_null("/root/GameWorld/World/WeatherSystem")
+	if weather != null and weather.has_method("get_sight_modifier"):
+		return weather.get_sight_modifier()
+	return 1.0
+
 
 # =============================================================================
 # Public API

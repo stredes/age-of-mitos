@@ -48,6 +48,12 @@ var _lightning_timer: float = 0.0
 var _camera: Camera2D = null
 var _elapsed: float = 0.0
 
+const RAIN_SPEED_MULT: float = 0.82
+const STORM_SPEED_MULT: float = 0.68
+const FOG_SIGHT_MULT: float = 0.65
+const STORM_SIGHT_MULT: float = 0.55
+const RAIN_SIGHT_MULT: float = 0.85
+
 
 func _ready() -> void:
 	_camera = get_viewport().get_camera_2d()
@@ -299,3 +305,35 @@ func _get_camera_view() -> Rect2:
 func _find_camera_if_needed() -> void:
 	if _camera == null and get_viewport():
 		_camera = get_viewport().get_camera_2d()
+
+
+func get_speed_modifier() -> float:
+	match current_weather:
+		WeatherType.STORM:
+			return lerpf(1.0, STORM_SPEED_MULT, intensity)
+		WeatherType.RAIN:
+			return lerpf(1.0, RAIN_SPEED_MULT, intensity)
+		WeatherType.STRONG_WIND:
+			return lerpf(1.0, 0.92, intensity)
+		_:
+			return 1.0
+
+
+func get_sight_modifier() -> float:
+	match current_weather:
+		WeatherType.FOG:
+			return lerpf(1.0, FOG_SIGHT_MULT, intensity)
+		WeatherType.STORM:
+			return lerpf(1.0, STORM_SIGHT_MULT, intensity)
+		WeatherType.RAIN:
+			return lerpf(1.0, RAIN_SIGHT_MULT, intensity)
+		_:
+			return 1.0
+
+
+func get_weather_name() -> String:
+	return WEATHER_NAMES.get(current_weather, "clear")
+
+
+func is_hostile() -> bool:
+	return current_weather == WeatherType.STORM or current_weather == WeatherType.RAIN
