@@ -129,7 +129,7 @@ func _create_building_button(building_type: String, player_id: int) -> void:
 
 	var btn: Button = Button.new()
 	btn.name = "Build_" + building_type
-	btn.custom_minimum_size = Vector2(100, 72)
+	btn.custom_minimum_size = Vector2(100, 96)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var btn_style: StyleBoxFlat = StyleBoxFlat.new()
@@ -166,6 +166,19 @@ func _create_building_button(building_type: String, player_id: int) -> void:
 	inner_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	inner_vbox.add_theme_constant_override("separation", 2)
 	btn.add_child(inner_vbox)
+
+	var preview: TextureRect = TextureRect.new()
+	preview.name = "Preview"
+	preview.custom_minimum_size = Vector2(48, 48)
+	preview.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var raw_size: Dictionary = building_data.get("size", {"x": 2, "y": 2})
+	var grid_size: Vector2i = Vector2i(raw_size.get("x", 2), raw_size.get("y", 2))
+	preview.texture = ProceduralSpriteFactory.get_building_preview(building_type, player_id, grid_size)
+	if not enabled:
+		preview.modulate = Color(0.5, 0.5, 0.5, 0.7)
+	inner_vbox.add_child(preview)
 
 	var name_label: Label = Label.new()
 	name_label.text = display_name

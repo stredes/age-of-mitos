@@ -18,8 +18,10 @@ var construction_bar: ProgressBar = null
 var construction_label: Label = null
 
 var _resource_labels: Dictionary = {}
+var _resource_panels: Dictionary = {}
 var _is_paused: bool = false
 var _notification_tween: Tween = null
+var _resource_tweens: Dictionary = {}
 
 var _resource_icons: Dictionary = {
 	"wood": "🪵",
@@ -207,9 +209,25 @@ func _setup_resource_bar() -> void:
 	for child: Node in resource_bar.get_children():
 		child.queue_free()
 	_resource_labels.clear()
+	_resource_panels.clear()
 
 	var resource_types: Array[String] = ["wood", "stone", "food", "gold"]
 	for res_type: String in resource_types:
+		var panel: PanelContainer = PanelContainer.new()
+		panel.name = res_type.capitalize() + "Panel"
+		var pill: StyleBoxFlat = StyleBoxFlat.new()
+		pill.bg_color = Color(0.08, 0.08, 0.14, 0.7)
+		pill.corner_radius_top_left = 10
+		pill.corner_radius_top_right = 10
+		pill.corner_radius_bottom_left = 10
+		pill.corner_radius_bottom_right = 10
+		pill.content_margin_left = 8
+		pill.content_margin_right = 8
+		pill.content_margin_top = 3
+		pill.content_margin_bottom = 3
+		panel.add_theme_stylebox_override("panel", pill)
+		_resource_panels[res_type] = panel
+
 		var container: HBoxContainer = HBoxContainer.new()
 		container.name = res_type.capitalize() + "Container"
 		container.add_theme_constant_override("separation", 4)
@@ -227,7 +245,8 @@ func _setup_resource_bar() -> void:
 		amount_label.add_theme_color_override("font_color", _resource_colors.get(res_type, Color.WHITE))
 		container.add_child(amount_label)
 
-		resource_bar.add_child(container)
+		panel.add_child(container)
+		resource_bar.add_child(panel)
 		_resource_labels[res_type] = amount_label
 
 
@@ -253,7 +272,26 @@ func update_resources() -> void:
 	for res_type: String in _resource_labels:
 		var label: Label = _resource_labels[res_type]
 		var amount: int = resources.get(res_type, 0)
-		label.text = str(amount)
+		var new_text: String = str(amount)
+		if label.text != new_text and label.text != "0":
+			_flash_resource(res_type)
+		label.text = new_text
+
+
+func _flash_resource(res_type: String) -> void:
+	if res_type not in _resource_panels:
+		return
+	var panel: PanelContainer = _resource_panels[res_type]
+	if panel == null:
+		return
+	if res_type in _resource_tweens and _resource_tweens[res_type] != null and _resource_tweens[res_type].is_valid():
+		_resource_tweens[res_type].kill()
+	var original_color: Color = Color(0.08, 0.08, 0.14, 0.7)
+	var flash_color: Color = original_color + Color(0.15, 0.15, 0.10, 0.0)
+	var tween: Tween = create_tween()
+	tween.tween_property(panel, "modulate", Color(1.25, 1.25, 1.1, 1.0), 0.08)
+	tween.tween_property(panel, "modulate", Color.WHITE, 0.25)
+	_resource_tweens[res_type] = tween
 
 
 func update_selection_info(selected_units: Array, selected_building_id: int) -> void:
