@@ -1,626 +1,532 @@
-## Manages all player input and translates it into game actions.
-##
-## Handles single-tap selection, right-click/long-press commands, drag-selection
-## boxes for multi-select, build-mode placement, and coordinate conversion
-## between screen and world space. Attach to a Node in your main game scene.
 class_name InputManager
 extends Node
+
+# =============================================================================
+# Signals
+# =============================================================================
+
+signal selection_changed(selected_units: Array, selected_buildings: Array)
+signal command_issued(command_type: String, target: Variant, data: Dictionary = {})
+signal camera_pan_requested(delta_world: Vector2)
+signal camera_zoom_requested(zoom_factor: float, pivot_screen: Vector2)
+signal ui_interaction_started()
+signal ui_interaction_ended()
+signal long_press_detected(screen_pos: Vector2, world_pos: Vector2)
+signal touch_indicator_requested(screen_pos: Vector2, indicator_type: String)
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-## Screen-space distance (pixels) below which a press+release counts as a click.
 @export var click_threshold: float = 10.0
+@export var long_press_time: float = 0.5
+@export var double_tap_window: float = 0.3
+@export var double_tap_tolerance: float = 20.0
+@export var two_finger_pan_threshold: float = 15.0
+@export var pinch_threshold: float = 10.0
 
-## How long (seconds) a press must be held before it counts as a long press.
-@export var long_press_duration: float = 0.4
+@export var touch_indicator_duration: float = 0.3
+@export var min_touch_target_dp: int = 48
 
-## Color of the selection rectangle rubber-band.
-@export var selection_box_color: Color = Color(0.2, 0.8, 0.2, 0.3)
-
-## Border color of the selection rectangle.
-@export var selection_box_border_color: Color = Color(0.2, 0.8, 0.2, 0.8)
-
-## Width (pixels) of the selection rectangle border.
-@export var selection_box_border_width: float = 2.0
+# Android detection
+var is_android: bool = OS.get_name() == "Android"
 
 # =============================================================================
-# State
+# Internal State
 # =============================================================================
 
-## World position where the current press began.
-var _press_start_world: Vector2 = Vector2.ZERO
-
-## Screen position where the current press began.
-var _press_start_screen: Vector2 = Vector2.ZERO
-
-## Current mouse / finger position in screen coordinates.
-var _current_screen_pos: Vector2 = Vector2.ZERO
-
-## Current mouse position in world coordinates (updated every frame).
-var mouse_world_position: Vector2 = Vector2.ZERO
-
-## Whether the user has dragged beyond click_threshold this press.
-var _has_dragged: bool = false
-
-## Whether a press is currently active.
-var _is_pressed: bool = false
-
-## Timestamp when the current press began.
-var _press_start_time: float = 0.0
-
-## Whether we are currently in build mode (placing a building).
-var has_build_mode: bool = false
-
-## The building type being placed in build mode.
-var build_mode_type: String = ""
-
-## Reference to the Camera2D used for coordinate conversion.
-var _camera: Camera2D = null
-
-## The selection rectangle node (drawn on a CanvasLayer above the world).
-var _selection_rect: Control = null
-
-## CanvasLayer that holds the selection rect so it stays on screen.
-var _selection_layer: CanvasLayer = null
-
-## Whether we are currently drawing the selection rectangle.
+var _active_touches: Dictionary = {}
+var _touch_start_times: Dictionary = {}
+var _touch_start_positions: Dictionary = {}
+var _long_press_timers: Dictionary = {}
 var _is_selecting: bool = false
-
-## Screen position of the selection box origin.
-var _selection_origin_screen: Vector2 = Vector2.ZERO
-
-## IDs of units currently selected by the player.
-var selected_unit_ids: Array[int] = []
-
-## IDs of buildings currently selected by the player.
-var selected_building_ids: Array[int] = []
+var _selection_start_screen: Vector2 = Vector2.ZERO
+var _selection_start_world: Vector2 = Vector2.ZERO
+var _last_tap_time: float = 0.0
+var _last_tap_screen: Vector2 = Vector2.ZERO
+var _is_panning_camera: bool = false
+var _pan_start_screen: Vector2 = Vector2.ZERO
+var _is_pinch_zooming: bool = false
+var _pinch_start_distance: float = 0.0
+var _pinch_start_zoom: float = 1.0
+var _pinch_midpoint_screen: Vector2 = Vector2.ZERO
+var _ui_interaction_active: bool = false
+var _camera_controller: CameraController = null
+var _selection_manager: Node = null
 
 # =============================================================================
 # Lifecycle
 # =============================================================================
 
 func _ready() -> void:
-	_setup_selection_rect()
+	_process_mode = Node.PROCESS_MODE_ALWAYS
+	_camera_controller = get_node_or_null("/root/GameWorld/CameraController")
+	if _camera_controller == null:
+		_camera_controller = get_node_or_null("/root/CameraController")
+	_selection_manager = get_node_or_null("/root/GameWorld/SelectionManager")
+	if _selection_manager == null:
+		_selection_manager = get_node_or_null("/root/SelectionManager")
+
+	if is_android:
+		OS.set_touchscreen_emulator_enabled(false)
+		OS.set_virtual_keyboard_enabled(false)
+
+	Input.use_accumulated_input = false
 
 
-func _process(_delta: float) -> void:
-	# Continuously update the world position of the mouse / primary finger.
-	if _camera != null:
-		mouse_world_position = _camera.get_global_mouse_position()
-	elif has_node("/root/GameWorld/Camera2D"):
-		_camera = get_node("/root/GameWorld/Camera2D")
-		mouse_world_position = _camera.get_global_mouse_position()
-
-	# Update the selection rectangle visual if actively selecting.
-	if _is_selecting:
-		_update_selection_rect_visual()
+func _process(delta: float) -> void:
+	if is_android:
+		_check_long_press_timers(delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch:
-		_handle_touch(event)
-	elif event is InputEventScreenDrag:
-		_handle_drag(event)
-	elif event is InputEventMouseButton:
-		_handle_mouse_button(event)
-	elif event is InputEventMouseMotion:
-		_handle_mouse_motion(event)
-	elif event is InputEventKey:
-		_handle_key(event)
-
-# =============================================================================
-# Input Handling — Touch
-# =============================================================================
-
-func _handle_touch(event: InputEventScreenTouch) -> void:
-	if event.pressed:
-		_press_start_screen = event.position
-		_press_start_world = _screen_to_world(event.position)
-		_current_screen_pos = event.position
-		_is_pressed = true
-		_has_dragged = false
-		_press_start_time = Time.get_ticks_msec() / 1000.0
-	else:
-		_current_screen_pos = event.position
-		if _is_pressed:
-			_process_release(event.position)
-		_is_pressed = false
-
-
-func _handle_drag(event: InputEventScreenDrag) -> void:
-	_current_screen_pos = event.position
-
-	if not _is_pressed:
+	if _is_ui_interaction(event):
+		_ui_interaction_active = true
+		_ui_interaction_started.emit()
 		return
 
-	var dist: float = event.position.distance_to(_press_start_screen)
-	if dist > click_threshold:
-		if not _has_dragged:
-			_has_dragged = true
-			# Check for long press threshold.
-			var elapsed: float = (Time.get_ticks_msec() / 1000.0) - _press_start_time
-			if elapsed >= long_press_duration or has_build_mode:
-				if not has_build_mode:
-					_begin_selection_box()
-			else:
-				# Started dragging before long press — could become a selection box
-				# once the long press time is reached.
-				pass
+	if is_android:
+		if event is InputEventScreenTouch:
+			_handle_screen_touch(event)
+		elif event is InputEventScreenDrag:
+			_handle_screen_drag(event)
+	else:
+		if event is InputEventMouseButton:
+			_handle_mouse_button(event)
+		elif event is InputEventMouseMotion:
+			_handle_mouse_motion(event)
 
-		if _is_selecting:
-			_update_selection_rect_visual()
+
+func _input(event: InputEvent) -> void:
+	if _ui_interaction_active and event is InputEventMouseButton and not event.pressed:
+		_ui_interaction_active = false
+		_ui_interaction_ended.emit()
+	elif event is InputEventScreenTouch and not event.pressed:
+		_ui_interaction_active = false
+		_ui_interaction_ended.emit()
+
 
 # =============================================================================
-# Input Handling — Mouse (Desktop Fallback)
+# UI Interaction Priority
+# =============================================================================
+
+func _is_ui_interaction(event: InputEvent) -> bool:
+	var viewport = get_viewport()
+	if viewport == null:
+		return false
+
+	var gui = viewport.gui_get_focus_owner()
+	if gui != null:
+		return true
+
+	var mouse_pos = viewport.get_mouse_position()
+	var controls_at_pos = viewport.gui_get_drag_data(mouse_pos)
+	if controls_at_pos:
+		return true
+
+	return false
+
+
+# =============================================================================
+# Android Touch Handling
+# =============================================================================
+
+func _handle_screen_touch(event: InputEventScreenTouch) -> void:
+	var idx = event.index
+
+	if event.pressed:
+		_touch_start_times[idx] = Time.get_ticks_msec() / 1000.0
+		_touch_start_positions[idx] = event.position
+		_active_touches[idx] = event.position
+
+		_long_press_timers[idx] = _touch_start_times[idx] + long_press_time
+
+		_touch_indicator_requested.emit(event.position, "touch_down")
+
+		if _active_touches.size() == 1:
+			_selection_start_screen = event.position
+			_selection_start_world = _screen_to_world(event.position)
+			_is_selecting = false
+			_is_panning_camera = false
+		elif _active_touches.size() == 2:
+			_begin_two_finger_pan()
+			_begin_pinch_zoom()
+	else:
+		_handle_touch_end(idx, event.position)
+		_active_touches.erase(idx)
+		_touch_start_times.erase(idx)
+		_touch_start_positions.erase(idx)
+		_long_press_timers.erase(idx)
+
+
+func _handle_screen_drag(event: InputEventScreenDrag) -> void:
+	_active_touches[event.index] = event.position
+
+	if _is_pinch_zooming and _active_touches.size() >= 2:
+		_update_pinch_zoom()
+		return
+
+	if _active_touches.size() == 2:
+		_update_two_finger_pan()
+		return
+
+	if _active_touches.size() == 1:
+		var idx = _active_touches.keys()[0]
+		var drag_distance = event.position.distance_to(_touch_start_positions[idx])
+
+		if _is_panning_camera:
+			var delta_screen = event.relative
+			var delta_world = delta_screen / _camera_controller.zoom.x
+			_camera_pan_requested.emit(-delta_world)
+			return
+
+		if not _is_selecting and drag_distance > click_threshold:
+			if _is_selection_gesture(idx):
+				_is_selecting = true
+				_selection_start_screen = _touch_start_positions[idx]
+				_selection_start_world = _screen_to_world(_touch_start_positions[idx])
+			else:
+				_is_panning_camera = true
+				_pan_start_screen = event.position
+
+		if _is_selecting:
+			_update_selection_box(event.position)
+		elif _is_panning_camera:
+			var delta_screen = event.relative
+			var delta_world = delta_screen / _camera_controller.zoom.x
+			_camera_pan_requested.emit(-delta_world)
+
+
+func _handle_touch_end(idx: int, screen_pos: Vector2) -> void:
+	var touch_duration = (Time.get_ticks_msec() / 1000.0) - _touch_start_times.get(idx, 0)
+	var drag_distance = screen_pos.distance_to(_touch_start_positions.get(idx, screen_pos))
+
+	if _is_pinch_zooming and _active_touches.size() <= 2:
+		_end_pinch_zoom()
+		return
+
+	if _active_touches.size() == 2 and not _is_pinch_zooming:
+		_end_two_finger_pan()
+		return
+
+	if drag_distance <= click_threshold and touch_duration < long_press_time:
+		_handle_tap(screen_pos, _touch_start_times[idx])
+	elif drag_distance > click_threshold:
+		if _is_selecting:
+			_finalize_selection(screen_pos)
+		elif _is_panning_camera:
+			_is_panning_camera = false
+	_is_selecting = false
+	_is_panning_camera = false
+
+
+func _check_long_press_timers(delta: float) -> void:
+	var current_time = Time.get_ticks_msec() / 1000.0
+	for idx in _long_press_timers.keys():
+		if current_time >= _long_press_timers[idx]:
+			var screen_pos = _active_touches.get(idx, Vector2.ZERO)
+			var world_pos = _screen_to_world(screen_pos)
+			_long_press_detected.emit(screen_pos, world_pos)
+			_touch_indicator_requested.emit(screen_pos, "long_press")
+			_long_press_timers.erase(idx)
+			break
+
+
+# =============================================================================
+# Gesture Detection
+# =============================================================================
+
+func _is_selection_gesture(idx: int) -> bool:
+	var start_pos = _touch_start_positions.get(idx, Vector2.ZERO)
+	var resource_at_start = _find_resource_at_screen(start_pos)
+	var unit_at_start = _find_unit_at_screen(start_pos)
+	var building_at_start = _find_building_at_screen(start_pos)
+
+	if resource_at_start or unit_at_start or building_at_start:
+		return false
+
+	if _selection_manager != null and _selection_manager.has_method("has_selection"):
+		if _selection_manager.has_selection():
+			return false
+
+	return true
+
+
+func _begin_two_finger_pan() -> void:
+	_is_panning_camera = true
+	var positions = _active_touches.values()
+	_pan_start_screen = (positions[0] + positions[1]) * 0.5
+
+
+func _update_two_finger_pan() -> void:
+	if _active_touches.size() < 2:
+		return
+	var positions = _active_touches.values()
+	var current_mid = (positions[0] + positions[1]) * 0.5
+	var delta_screen = current_mid - _pan_start_screen
+
+	if delta_screen.length() > two_finger_pan_threshold:
+		var delta_world = delta_screen / _camera_controller.zoom.x
+		_camera_pan_requested.emit(-delta_world)
+		_pan_start_screen = current_mid
+
+
+func _end_two_finger_pan() -> void:
+	_is_panning_camera = false
+
+
+func _begin_pinch_zoom() -> void:
+	_is_pinch_zooming = true
+	_is_panning_camera = false
+	var positions = _active_touches.values()
+	var pos_a = positions[0]
+	var pos_b = positions[1]
+	_pinch_start_distance = pos_a.distance_to(pos_b)
+	_pinch_start_zoom = _camera_controller.get_zoom_level()
+	_pinch_midpoint_screen = (pos_a + pos_b) * 0.5
+
+
+func _update_pinch_zoom() -> void:
+	if _active_touches.size() < 2:
+		return
+	var positions = _active_touches.values()
+	var pos_a = positions[0]
+	var pos_b = positions[1]
+	var current_distance = pos_a.distance_to(pos_b)
+
+	if abs(current_distance - _pinch_start_distance) > pinch_threshold:
+		var ratio = current_distance / _pinch_start_distance
+		var new_zoom = _pinch_start_zoom * ratio
+		new_zoom = clampf(new_zoom, _camera_controller.min_zoom, _camera_controller.max_zoom)
+		_camera_zoom_requested.emit(new_zoom / _camera_controller.get_zoom_level(), _pinch_midpoint_screen)
+
+
+func _end_pinch_zoom() -> void:
+	_is_pinch_zooming = false
+
+
+# =============================================================================
+# Tap Handling
+# =============================================================================
+
+func _handle_tap(screen_pos: Vector2, tap_time: float) -> void:
+	var time_since_last = tap_time - _last_tap_time
+	var dist_from_last = screen_pos.distance_to(_last_tap_screen)
+
+	if time_since_last <= double_tap_window and dist_from_last <= double_tap_tolerance:
+		_handle_double_tap(screen_pos)
+		_last_tap_time = 0
+		_last_tap_screen = Vector2.ZERO
+	else:
+		_handle_single_tap(screen_pos)
+		_last_tap_time = tap_time
+		_last_tap_screen = screen_pos
+
+	_touch_indicator_requested.emit(screen_pos, "tap")
+
+
+func _handle_single_tap(screen_pos: Vector2) -> void:
+	var world_pos = _screen_to_world(screen_pos)
+
+	var unit = _find_unit_at_screen(screen_pos)
+	if unit != null:
+		_select_unit(unit)
+		return
+
+	var building = _find_building_at_screen(screen_pos)
+	if building != null:
+		_select_building(building)
+		return
+
+	if _selection_manager != null and _selection_manager.has_method("has_selection"):
+		if _selection_manager.has_selection():
+			var resource = _find_resource_at_screen(screen_pos)
+			if resource != null:
+				_command_issued.emit("harvest", resource, {"target_pos": world_pos})
+				return
+
+			_command_issued.emit("move", world_pos, {})
+			return
+	_select_building_at(world_pos)
+
+
+func _handle_double_tap(screen_pos: Vector2) -> void:
+	var world_pos = _screen_to_world(screen_pos)
+	_camera_controller.center_on_smooth(world_pos)
+	_touch_indicator_requested.emit(screen_pos, "double_tap")
+
+
+# =============================================================================
+# Selection Box
+# =============================================================================
+
+func _update_selection_box(current_screen: Vector2) -> void:
+	if _selection_manager == null:
+		return
+	var rect = Rect2(
+		Vector2(min(_selection_start_screen.x, current_screen.x), min(_selection_start_screen.y, current_screen.y)),
+		Vector2(abs(current_screen.x - _selection_start_screen.x), abs(current_screen.y - _selection_start_screen.y))
+	)
+	_selection_manager.select_units_in_rect(rect)
+
+
+func _finalize_selection(screen_pos: Vector2) -> void:
+	if _selection_manager != null and _selection_manager.has_method("finalize_selection"):
+		_selection_manager.finalize_selection()
+	_selection_manager.get_selected_units()
+
+
+# =============================================================================
+# Desktop Mouse Fallback
 # =============================================================================
 
 func _handle_mouse_button(event: InputEventMouseButton) -> void:
-	# We only care about left and right mouse buttons.
-	match event.button_index:
-		MOUSE_BUTTON_LEFT:
-			if event.pressed:
-				_press_start_screen = event.position
-				_press_start_world = _screen_to_world(event.position)
-				_current_screen_pos = event.position
-				_is_pressed = true
-				_has_dragged = false
-				_press_start_time = Time.get_ticks_msec() / 1000.0
-			else:
-				_current_screen_pos = event.position
-				if _is_pressed:
-					_process_release(event.position)
-				_is_pressed = false
-
-		MOUSE_BUTTON_RIGHT:
-			if event.pressed:
-				_handle_right_click(_screen_to_world(event.position))
-			else:
-				# Right click release — cancel build mode if active.
-				if has_build_mode:
-					cancel_build_mode()
+	if event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_touch_start_times[-1] = Time.get_ticks_msec() / 1000.0
+			_touch_start_positions[-1] = event.position
+			_selection_start_screen = event.position
+			_selection_start_world = _screen_to_world(event.position)
+			_is_selecting = false
+		else:
+			var drag_dist = event.position.distance_to(_selection_start_screen)
+			if drag_dist <= click_threshold:
+				_handle_tap(event.position, _touch_start_times[-1])
+			elif _is_selecting:
+				_finalize_selection(event.position)
+			_is_selecting = false
+	elif event.button_index == MOUSE_BUTTON_RIGHT:
+		if event.pressed:
+			_is_panning_camera = true
+			_pan_start_screen = event.position
+		else:
+			_is_panning_camera = false
+	elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		_camera_zoom_requested.emit(1.1, event.position)
+	elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		_camera_zoom_requested.emit(0.9, event.position)
 
 
 func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
-	_current_screen_pos = event.position
-	if _camera != null:
-		mouse_world_position = _camera.get_global_mouse_position()
+	if _is_panning_camera:
+		var delta_world = event.relative / _camera_controller.zoom.x
+		_camera_pan_requested.emit(-delta_world)
+	elif _is_selecting:
+		var drag_dist = event.position.distance_to(_selection_start_screen)
+		if drag_dist > click_threshold:
+			_update_selection_box(event.position)
 
-	if _is_pressed and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
-		var dist: float = event.position.distance_to(_press_start_screen)
-		if dist > click_threshold:
-			if not _has_dragged:
-				_has_dragged = true
-				_begin_selection_box()
-			if _is_selecting:
-				_update_selection_rect_visual()
 
 # =============================================================================
-# Input Handling — Keyboard
+# Selection Helpers
 # =============================================================================
 
-func _handle_key(event: InputEventKey) -> void:
-	if not event.pressed:
-		return
-	match event.keycode:
-		KEY_ESCAPE:
-			if has_build_mode:
-				cancel_build_mode()
-			else:
-				deselect_all()
-		KEY_B:
-			EventBus.button_pressed.emit("build_menu", GameManager.get_local_player_id())
-		KEY_S:
-			EventBus.button_pressed.emit("stop_command", GameManager.get_local_player_id())
-		KEY_W:
-			EventBus.button_pressed.emit("gather_wood", GameManager.get_local_player_id())
-		KEY_F:
-			EventBus.button_pressed.emit("gather_food", GameManager.get_local_player_id())
-		KEY_T:
-			EventBus.button_pressed.emit("gather_stone", GameManager.get_local_player_id())
-		KEY_G:
-			EventBus.button_pressed.emit("gather_gold", GameManager.get_local_player_id())
-		KEY_V:
-			EventBus.button_pressed.emit("train_villager", GameManager.get_local_player_id())
-		KEY_Z:
-			EventBus.button_pressed.emit("train_swordsman", GameManager.get_local_player_id())
-		KEY_P:
-			EventBus.button_pressed.emit("train_spearman", GameManager.get_local_player_id())
-		KEY_R:
-			EventBus.button_pressed.emit("train_archer", GameManager.get_local_player_id())
-		KEY_C:
-			EventBus.button_pressed.emit("train_cavalry", GameManager.get_local_player_id())
+func _select_unit(unit: Node) -> void:
+	if _selection_manager != null and _selection_manager.has_method("select_unit"):
+		_selection_manager.select_unit(unit)
+	_selection_changed.emit(_get_selected_units(), _get_selected_buildings())
+
+
+func _select_building(building: Node) -> void:
+	if _selection_manager != null and _selection_manager.has_method("select_building"):
+		_selection_manager.select_building(building)
+	_selection_changed.emit(_get_selected_units(), _get_selected_buildings())
+
+
+func _select_building_at(world_pos: Vector2) -> void:
+	if _selection_manager != null and _selection_manager.has_method("select_building_at"):
+		_selection_manager.select_building_at(world_pos)
+	_selection_changed.emit(_get_selected_units(), _get_selected_buildings())
+
+
+func _get_selected_units() -> Array:
+	if _selection_manager != null and _selection_manager.has_method("get_selected_units"):
+		return _selection_manager.get_selected_units()
+	return []
+
+
+func _get_selected_buildings() -> Array:
+	if _selection_manager != null and _selection_manager.has_method("get_selected_buildings"):
+		return _selection_manager.get_selected_buildings()
+	return []
+
 
 # =============================================================================
-# Release Processing
+# Spatial Queries
 # =============================================================================
 
-## Process the end of a press (click or drag-release).
-func _process_release(release_screen_pos: Vector2) -> void:
-	var drag_distance: float = release_screen_pos.distance_to(_press_start_screen)
-
-	if _is_selecting:
-		_end_selection_box()
-		return
-
-	if drag_distance < click_threshold and not _has_dragged:
-		# This was a click / tap.
-		if has_build_mode:
-			_handle_build_click(release_screen_pos)
-		else:
-			_handle_click(release_screen_pos)
-	elif _has_dragged:
-		# Drag ended without entering selection mode (short drag).
-		# Still end selection if we were in one.
-		pass
-
-# =============================================================================
-# Click Handling
-# =============================================================================
-
-## Process a click/tap at the given screen position — select unit or building.
-func _handle_click(screen_pos: Vector2) -> void:
-	var world_pos: Vector2 = _screen_to_world(screen_pos)
-	EventBus.button_pressed.emit("click", GameManager.get_local_player_id())
-
-	var selection_manager: Node = _find_selection_manager()
-	var shift_held: bool = Input.is_key_pressed(KEY_SHIFT)
-	if selection_manager != null and selection_manager.has_method("handle_click_at"):
-		selection_manager.handle_click_at(world_pos, shift_held)
-		_sync_selection_from_manager(selection_manager)
-	else:
-		deselect_all()
-
-
-## Process a right-click / long-press command at the given world position.
-func _handle_right_click(world_pos: Vector2) -> void:
-	if has_build_mode:
-		cancel_build_mode()
-		return
-
-	if selected_unit_ids.size() > 0:
-		var target_resource: Node2D = _find_resource_at_position(world_pos)
-		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
-		var unit_index: int = 0
-		for unit_id: int in selected_unit_ids:
-			var unit: Node2D = _find_unit_by_id(unit_id)
-			if unit == null:
-				continue
-			if target_resource != null:
-				unit.set("pending_target_resource", target_resource)
-				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
-				if state_machine != null and state_machine.has_method("change_state"):
-					state_machine.change_state("HarvestState")
-			else:
-				var move_target: Vector2 = formation_targets.get(unit_index, world_pos)
-				unit.set("pending_move_position", move_target)
-				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
-				if state_machine != null and state_machine.has_method("change_state"):
-					state_machine.change_state("MoveState")
-				EventBus.unit_moved.emit(unit_id, move_target)
-			unit_index += 1
-		AudioManager.play_ui_click()
-
-# =============================================================================
-# Build Mode
-# =============================================================================
-
-## Process a click while in build mode — attempt to place the building.
-func _handle_build_click(screen_pos: Vector2) -> void:
-	var world_pos: Vector2 = _screen_to_world(screen_pos)
-	var grid_manager: Node = get_node_or_null("/root/GameWorld/GridManager")
-	if grid_manager == null:
-		push_warning("InputManager: GridManager not found for build placement.")
-		return
-
-	# Convert world position to grid cell.
-	var cell: Vector2i = grid_manager.get_cell_from_world(world_pos)
-
-	# Look up building size from DataManager.
-	var building_data: Dictionary = DataManager.get_building_data(build_mode_type)
-	var raw_size: Variant = building_data.get("size", {"x": 2, "y": 2})
-	var size: Vector2i
-	if raw_size is Vector2i:
-		size = raw_size
-	elif raw_size is Dictionary:
-		size = Vector2i(int(raw_size.get("x", 2)), int(raw_size.get("y", 2)))
-	else:
-		size = Vector2i(2, 2)
-
-	if grid_manager.is_buildable(cell, size):
-		var cost: Dictionary = building_data.get("cost", {})
-		var player_id: int = GameManager.get_local_player_id()
-		if GameManager.spend_resources(cost, player_id):
-			var building_manager: Node = _find_building_manager()
-			var building_node: Node2D = null
-			if building_manager != null and building_manager.has_method("place_building"):
-				building_node = building_manager.place_building(build_mode_type, cell, player_id)
-			elif grid_manager.has_method("place_building"):
-				grid_manager.place_building(cell, size, build_mode_type)
-
-			if building_node != null and building_node.has_method("start_construction"):
-				building_node.start_construction()
-
-			AudioManager.play_sfx("res://audio/sfx/build_place.wav")
-		else:
-			AudioManager.play_sfx("res://audio/sfx/cant_build.wav")
-	else:
-		AudioManager.play_sfx("res://audio/sfx/cant_build.wav")
-
-
-## Enter build mode with the given building type.
-func enter_build_mode(building_type: String) -> void:
-	has_build_mode = true
-	build_mode_type = building_type
-	deselect_all()
-	EventBus.menu_opened.emit("build_mode")
-
-
-## Exit build mode without placing anything.
-func cancel_build_mode() -> void:
-	has_build_mode = false
-	build_mode_type = ""
-	EventBus.menu_closed.emit("build_mode")
-
-
-## Generate a unique building ID. In production, delegate to a world entity manager.
-func _generate_building_id() -> int:
-	return randi()
-
-# =============================================================================
-# Selection Box (Rubber Band)
-# =============================================================================
-
-## Set up the selection rectangle UI elements.
-func _setup_selection_rect() -> void:
-	_selection_layer = CanvasLayer.new()
-	_selection_layer.layer = 100
-	_selection_layer.name = "SelectionLayer"
-	add_child(_selection_layer)
-
-	_selection_rect = Control.new()
-	_selection_rect.name = "SelectionRect"
-	_selection_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_selection_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_selection_layer.add_child(_selection_rect)
-
-	# Connect the draw signal to our custom draw function.
-	_selection_rect.draw.connect(_draw_selection_rect)
-
-
-## Begin drawing the selection box.
-func _begin_selection_box() -> void:
-	_is_selecting = true
-	_selection_origin_screen = _press_start_screen
-	EventBus.selection_started.emit(_press_start_world)
-
-
-## Update the selection rectangle visual each frame.
-func _update_selection_rect_visual() -> void:
-	if _selection_rect != null:
-		_selection_rect.queue_redraw()
-
-
-## Draw the selection rectangle on screen.
-func _draw_selection_rect() -> void:
-	if not _is_selecting:
-		return
-	var origin: Vector2 = _selection_origin_screen
-	var current: Vector2 = _current_screen_pos
-	var rect: Rect2 = Rect2(origin, current - origin).abs()
-
-	_selection_rect.draw_rect(rect, selection_box_color, true)
-	_selection_rect.draw_rect(rect, selection_box_border_color, false, selection_box_border_width)
-
-
-## Finish the selection box and select all units within it.
-func _end_selection_box() -> void:
-	_is_selecting = false
-	_selection_rect.queue_redraw()
-
-	var start_world: Vector2 = _press_start_world
-	var end_world: Vector2 = _screen_to_world(_current_screen_pos)
-
-	var selection_rect_world: Rect2 = Rect2(
-		Vector2(minf(start_world.x, end_world.x), minf(start_world.y, end_world.y)),
-		Vector2(absf(end_world.x - start_world.x), absf(end_world.y - start_world.y))
-	)
-
-	var selection_manager: Node = _find_selection_manager()
-	if selection_manager != null and selection_manager.has_method("select_all_in_rect"):
-		var selected: Array = selection_manager.select_all_in_rect(selection_rect_world)
-		_sync_selection_from_manager(selection_manager)
-		EventBus.selection_ended.emit(start_world, end_world, selected)
-	else:
-		EventBus.selection_ended.emit(start_world, end_world, [])
-		deselect_all()
-
-# =============================================================================
-# Selection Management
-# =============================================================================
-
-## Select an array of unit IDs, replacing any current selection.
-func _select_units(unit_ids: Array[int]) -> void:
-	deselect_all()
-	selected_unit_ids = unit_ids.duplicate()
-	for uid: int in selected_unit_ids:
-		var player_id: int = GameManager.get_local_player_id()
-		EventBus.unit_selected.emit(uid, player_id)
-	EventBus.selection_changed.emit(selected_unit_ids, selected_building_ids)
-
-
-## Add a unit to the current selection (for ctrl+click additive select).
-func add_to_selection(unit_id: int) -> void:
-	if unit_id not in selected_unit_ids:
-		selected_unit_ids.append(unit_id)
-		var player_id: int = GameManager.get_local_player_id()
-		EventBus.unit_selected.emit(unit_id, player_id)
-	EventBus.selection_changed.emit(selected_unit_ids, selected_building_ids)
-
-
-## Remove a unit from the current selection.
-func remove_from_selection(unit_id: int) -> void:
-	selected_unit_ids.erase(unit_id)
-	var player_id: int = GameManager.get_local_player_id()
-	EventBus.unit_deselected.emit(unit_id, player_id)
-	EventBus.selection_changed.emit(selected_unit_ids, selected_building_ids)
-
-
-## Select a building, replacing current selection.
-func select_building(building_id: int) -> void:
-	deselect_all()
-	selected_building_ids.append(building_id)
-	var player_id: int = GameManager.get_local_player_id()
-	EventBus.building_selected.emit(building_id, player_id)
-	EventBus.selection_changed.emit(selected_unit_ids, selected_building_ids)
-
-
-## Clear all selections.
-func deselect_all() -> void:
-	var player_id: int = GameManager.get_local_player_id()
-	for uid: int in selected_unit_ids:
-		EventBus.unit_deselected.emit(uid, player_id)
-	selected_unit_ids.clear()
-	selected_building_ids.clear()
-	EventBus.selection_changed.emit(selected_unit_ids, selected_building_ids)
-
-
-## Get the list of currently selected unit IDs.
-func get_selected_units() -> Array[int]:
-	return selected_unit_ids
-
-
-## Get the list of currently selected building IDs.
-func get_selected_buildings() -> Array[int]:
-	return selected_building_ids
-
-
-## Check if any selection is active.
-func has_selection() -> bool:
-	return selected_unit_ids.size() > 0 or selected_building_ids.size() > 0
-
-# =============================================================================
-# Coordinate Conversion
-# =============================================================================
-
-## Convert a screen-space position to world-space using the camera.
-func _screen_to_world(screen_pos: Vector2) -> Vector2:
-	if _camera != null:
-		return _camera.get_canvas_transform().affine_inverse() * screen_pos
-	return screen_pos
-
-
-func _find_selection_manager() -> Node:
-	var node: Node = get_node_or_null("/root/GameWorld/SelectionManager")
-	if node != null:
-		return node
-	return get_node_or_null("/root/GameWorld/World/SelectionManager")
-
-
-func _find_building_manager() -> Node:
-	var node: Node = get_node_or_null("/root/GameWorld/BuildingManager")
-	if node != null:
-		return node
-	return get_node_or_null("/root/GameWorld/World/BuildingManager")
-
-
-func _sync_selection_from_manager(selection_manager: Node) -> void:
-	if selection_manager == null:
-		return
-	if selection_manager.has_method("get_selected_units"):
-		selected_unit_ids = selection_manager.get_selected_units()
-	if selection_manager.has_method("get_selected_building"):
-		var selected_building: int = selection_manager.get_selected_building()
-		selected_building_ids = []
-		if selected_building != -1:
-			selected_building_ids.append(selected_building)
-	elif selection_manager.has_method("get_selected_buildings"):
-		selected_building_ids = selection_manager.get_selected_buildings()
-
-
-func _find_unit_by_id(unit_id: int) -> Node2D:
-	var units: Array[Node] = get_tree().get_nodes_in_group("units")
-	for unit: Node in units:
-		if unit is Node2D and unit.get("unit_id") != null and int(unit.get("unit_id")) == unit_id:
-			return unit as Node2D
+func _find_unit_at_screen(screen_pos: Vector2) -> Node:
+	var world_pos = _screen_to_world(screen_pos)
+	var units = get_tree().get_nodes_in_group("units")
+	for unit in units:
+		if unit is Node2D and unit.has_method("get_rect"):
+			var rect = unit.get_rect()
+			if rect.has_point(unit.to_local(world_pos)):
+				return unit
 	return null
 
 
-func _find_resource_at_position(world_pos: Vector2) -> Node2D:
-	var best: Node2D = null
-	var best_dist_sq: float = 56.0 * 56.0
-	var root: Node = get_tree().current_scene
-	if root == null:
-		root = get_tree().root
-	return _find_resource_recursive(root, world_pos, best, best_dist_sq)
+func _find_building_at_screen(screen_pos: Vector2) -> Node:
+	var world_pos = _screen_to_world(screen_pos)
+	var buildings = get_tree().get_nodes_in_group("buildings")
+	for building in buildings:
+		if building is Node2D and building.has_method("get_rect"):
+			var rect = building.get_rect()
+			if rect.has_point(building.to_local(world_pos)):
+				return building
+	return null
 
 
-func _find_resource_recursive(node: Node, world_pos: Vector2, best: Node2D, best_dist_sq: float) -> Node2D:
-	if node is Node2D and node.has_method("harvest"):
-		var resource_node: Node2D = node as Node2D
-		var amount: int = 1
-		if resource_node.has_method("get_current_amount"):
-			amount = resource_node.get_current_amount()
-		elif resource_node.get("current_amount") != null:
-			amount = int(resource_node.get("current_amount"))
-		if amount > 0:
-			var dist_sq: float = resource_node.global_position.distance_squared_to(world_pos)
+func _find_resource_at_screen(screen_pos: Vector2) -> Node:
+	var world_pos = _screen_to_world(screen_pos)
+	var resources = get_tree().get_nodes_in_group("resources")
+	var best = null
+	var best_dist_sq = 10000.0
+	for resource in resources:
+		if resource is Node2D:
+			var dist_sq = resource.global_position.distance_squared_to(world_pos)
 			if dist_sq < best_dist_sq:
-				best = resource_node
 				best_dist_sq = dist_sq
-
-	for child: Node in node.get_children():
-		var candidate: Node2D = _find_resource_recursive(child, world_pos, best, best_dist_sq)
-		if candidate != best:
-			best = candidate
-			best_dist_sq = candidate.global_position.distance_squared_to(world_pos)
+				best = resource
 	return best
 
 
-func _build_formation_targets(center: Vector2, unit_count: int) -> Dictionary:
-	var targets: Dictionary = {}
-	if unit_count <= 1:
-		targets[0] = center
-		return targets
+# =============================================================================
+# Helpers
+# =============================================================================
 
-	var spacing: float = 34.0
-	var columns: int = ceili(sqrt(float(unit_count)))
-	var rows: int = ceili(float(unit_count) / float(columns))
-	var index: int = 0
-	for row in range(rows):
-		for col in range(columns):
-			if index >= unit_count:
-				break
-			var offset: Vector2 = Vector2(
-				(float(col) - float(columns - 1) * 0.5) * spacing,
-				(float(row) - float(rows - 1) * 0.5) * spacing
-			)
-			targets[index] = center + offset
-			index += 1
-	return targets
+func _screen_to_world(screen_pos: Vector2) -> Vector2:
+	if _camera_controller != null:
+		return _camera_controller.get_canvas_transform().affine_inverse() * screen_pos
+	return screen_pos
 
 
-## Set the camera reference used for coordinate conversion.
-func set_camera(cam: Camera2D) -> void:
-	_camera = cam
+func _get_viewport_rect() -> Rect2:
+	return get_viewport_rect()
 
 
-## Check if the player is currently dragging (has moved beyond click threshold).
-func is_dragging() -> bool:
-	return _has_dragged
-
-
-## Check if a selection box is actively being drawn.
 func is_selecting() -> bool:
 	return _is_selecting
 
 
-## Get the world-space bounds of the current selection rectangle.
-func get_selection_rect_world() -> Rect2:
-	var start_world: Vector2 = _press_start_world
-	var end_world: Vector2 = _screen_to_world(_current_screen_pos)
+func get_selection_rect() -> Rect2:
+	if not _is_selecting:
+		return Rect2()
+	var current_pos = _active_touches.values().size() > 0 ? _active_touches.values()[0] : _selection_start_screen
 	return Rect2(
-		Vector2(minf(start_world.x, end_world.x), minf(start_world.y, end_world.y)),
-		Vector2(absf(end_world.x - start_world.x), absf(end_world.y - start_world.y))
+		Vector2(min(_selection_start_screen.x, current_pos.x), min(_selection_start_screen.y, current_pos.y)),
+		Vector2(abs(current_pos.x - _selection_start_screen.x), abs(current_pos.y - _selection_start_screen.y))
 	)
+
+
+func get_selection_rect_world() -> Rect2:
+	var start_w = _selection_start_world
+	var end_w = _screen_to_world(_active_touches.values().size() > 0 ? _active_touches.values()[0] : _selection_start_screen)
+	return Rect2(
+		Vector2(min(start_w.x, end_w.x), min(start_w.y, end_w.y)),
+		Vector2(abs(end_w.x - start_w.x), abs(end_w.y - start_w.y))
+	)
+
+
+func set_camera_controller(camera: CameraController) -> void:
+	_camera_controller = camera
