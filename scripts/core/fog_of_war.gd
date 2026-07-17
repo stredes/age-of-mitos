@@ -478,3 +478,6 @@ func _on_game_started(_player_id: int) -> void:
 	_fog_data.clear()
 	_initialize_fog_image()
 	_needs_full_redraw = true
+	var total: int = grid_size.x * grid_size.y
+	_transition_alpha.resize(total)
+	_transition_alpha.fill(0.0)

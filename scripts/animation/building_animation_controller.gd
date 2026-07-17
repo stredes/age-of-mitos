@@ -29,6 +29,10 @@ const SMOKE_PARTICLE_AMOUNT: int = 8
 const SMOKE_PARTICLE_LIFETIME: float = 2.0
 const FIRE_PARTICLE_AMOUNT: int = 12
 const FIRE_PARTICLE_LIFETIME: float = 1.5
+# Construction stages.
+const STAGE_FOUNDATION_MAX: float = 0.25
+const STAGE_FRAMING_MAX: float = 0.60
+const STAGE_FINISHING_MAX: float = 0.90
 
 # --- Exported Properties ---
 @export var production_pulse_interval: float = 1.0
@@ -51,12 +55,14 @@ var _mill_blades: Node2D = null
 var _current_state: String = "active"
 var _damage_level: float = 1.0
 var _construction_progress: float = 0.0
+var _construction_stage: int = 0
 var _is_producing: bool = false
 var _is_on_fire: bool = false
 var _torch_tween: Tween = null
 var _flag_tween: Tween = null
 var _mill_tween: Tween = null
 var _production_tween: Tween = null
+var _completion_tween: Tween = null
 var _production_timer: float = 0.0
 
 
@@ -207,19 +213,43 @@ func set_state(new_state: String) -> void:
 	_apply_state_visuals()
 
 
-## Set construction progress from 0.0 to 1.0.
+## Set construction progress from 0.0 to 1.0 with stage feedback.
 func set_construction_progress(progress: float) -> void:
+	var old_progress: float = _construction_progress
 	_construction_progress = clampf(progress, 0.0, 1.0)
-	# Map progress to construction frames (0-2)
+
+	# Determine construction stage for visual feedback.
+	var new_stage: int = 0
+	if _construction_progress >= STAGE_FINISHING_MAX:
+		new_stage = 3
+	elif _construction_progress >= STAGE_FRAMING_MAX:
+		new_stage = 2
+	elif _construction_progress >= STAGE_FOUNDATION_MAX:
+		new_stage = 1
+
+	# Emit signal on stage change for particle/sound effects.
+	if new_stage != _construction_stage:
+		_construction_stage = new_stage
+
+	# Map progress to construction frames (0-2).
 	if _sprite and _sprite.sprite_frames and _sprite.sprite_frames.has_animation("constructing"):
 		var frame_count: int = _sprite.sprite_frames.get_frame_count("constructing")
 		var frame: int = int(_construction_progress * (frame_count - 1))
 		_sprite.play("constructing")
 		_sprite.frame = frame
-	# Update construction bar
+
+	# Scale construction smoke with progress (more at start, less near end).
+	if _smoke_particles:
+		var smoke_intensity: float = 1.0 - _construction_progress * 0.6
+		_smoke_particles.amount = int(float(SMOKE_PARTICLE_AMOUNT) * smoke_intensity)
+		_smoke_particles.emitting = _construction_progress < 1.0 and _construction_progress > 0.0
+
+	# Update construction bar.
 	_update_construction_bar()
-	# Emit completion
-	if _construction_progress >= 1.0:
+
+	# Emit completion with burst effect.
+	if _construction_progress >= 1.0 and old_progress < 1.0:
+		_play_completion_burst()
 		construction_completed.emit()
 		set_state("active")
 
@@ -302,12 +332,19 @@ func _apply_state_visuals() -> void:
 				_sprite.play("constructing")
 			extinguish_fire()
 			_cracks_overlay.visible = false
+			# Start construction smoke.
+			if _smoke_particles:
+				_smoke_particles.emitting = true
+				_smoke_particles.position = Vector2(0, -12)
 		"active":
 			if _sprite and _sprite.sprite_frames and _sprite.sprite_frames.has_animation("active"):
 				_sprite.play("active")
 			extinguish_fire()
 			_cracks_overlay.visible = false
 			_apply_damage_visuals()
+			# Stop construction smoke.
+			if _smoke_particles:
+				_smoke_particles.emitting = false
 		"producing":
 			if _sprite and _sprite.sprite_frames and _sprite.sprite_frames.has_animation("producing"):
 				_sprite.play("producing")
@@ -358,16 +395,60 @@ func _ensure_sprite_frames() -> void:
 
 
 func _apply_damage_visuals() -> void:
-	# Show cracks overlay when below damage threshold
+	# Show cracks overlay when below damage threshold.
 	if _damage_level < DAMAGE_CRACKS_THRESHOLD and _damage_level > DAMAGE_FIRE_THRESHOLD:
 		_cracks_overlay.visible = true
 		_current_state = "damaged"
+		# Increase smoke as damage worsens.
+		if _smoke_particles:
+			var smoke_rate: float = 1.0 - (_damage_level - DAMAGE_FIRE_THRESHOLD) / (DAMAGE_CRACKS_THRESHOLD - DAMAGE_FIRE_THRESHOLD)
+			_smoke_particles.amount = int(float(SMOKE_PARTICLE_AMOUNT) * (0.3 + smoke_rate * 0.7))
+			_smoke_particles.emitting = true
+			_smoke_particles.position = Vector2(0, -15)
 	elif _damage_level <= DAMAGE_FIRE_THRESHOLD and _damage_level > 0.0:
 		_cracks_overlay.visible = true
 		if not _is_on_fire:
 			set_on_fire()
 	elif _damage_level >= DAMAGE_CRACKS_THRESHOLD:
 		_cracks_overlay.visible = false
+		if _smoke_particles:
+			_smoke_particles.emitting = false
+
+
+## Play a completion burst effect when construction finishes.
+func _play_completion_burst() -> void:
+	if not _sprite:
+		return
+	# White flash + bounce.
+	var original_y: float = _sprite.position.y
+	if _completion_tween and _completion_tween.is_valid():
+		_completion_tween.kill()
+	_completion_tween = create_tween().set_parallel(true)
+	_completion_tween.tween_property(
+		_sprite, "modulate",
+		Color(1.5, 1.5, 1.5, 1.0),
+		0.12
+	)
+	_completion_tween.tween_property(
+		_sprite, "position:y",
+		original_y - 4.0,
+		0.15
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_completion_tween.chain().tween_property(
+		_sprite, "modulate", Color.WHITE,
+		0.25
+	)
+	_completion_tween.tween_property(
+		_sprite, "position:y", original_y,
+		0.2
+	).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	# Emit construction smoke burst.
+	if _smoke_particles:
+		_smoke_particles.amount = SMOKE_PARTICLE_AMOUNT * 2
+		_smoke_particles.emitting = true
+		_completion_tween.tween_interval(0.5)
+		_completion_tween.tween_callback(func(): _smoke_particles.emitting = false)
+	production_pulse.emit()
 
 
 func _update_construction_bar() -> void:
