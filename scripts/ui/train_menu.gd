@@ -294,6 +294,12 @@ func on_train_button_pressed(unit_type: String) -> void:
 	refresh_unit_options(_current_building_type)
 
 
+func _cancel_queue_item(index: int) -> void:
+	EventBus.button_pressed.emit("cancel_queue_%d_%d" % [_current_building_id, index], GameManager.local_player_id)
+	_update_queue_display()
+	refresh_unit_options(_current_building_type)
+
+
 func _update_queue_display() -> void:
 	var building_node: Node = _find_building_by_id(_current_building_id)
 	if building_node == null:
@@ -324,6 +330,10 @@ func _update_queue_display() -> void:
 		var unit_data: Dictionary = DataManager.get_unit_data(item_name)
 		var display_name: String = unit_data.get("display_name", item_name.capitalize())
 
+		var slot_vbox: VBoxContainer = VBoxContainer.new()
+		slot_vbox.add_theme_constant_override("separation", 0)
+		_queue_container.add_child(slot_vbox)
+
 		var slot: PanelContainer = PanelContainer.new()
 		slot.custom_minimum_size = Vector2(48, 48)
 
@@ -344,15 +354,42 @@ func _update_queue_display() -> void:
 		slot_style.corner_radius_bottom_right = 4
 		slot.add_theme_stylebox_override("panel", slot_style)
 
-		_queue_container.add_child(slot)
+		slot_vbox.add_child(slot)
 
-		var slot_label: Label = Label.new()
-		slot_label.text = display_name[0] if display_name.length() > 0 else "?"
-		slot_label.add_theme_font_size_override("font_size", 14)
-		slot_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		slot_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		slot_label.set_anchors_preset(Control.PRESET_FULL_RECT)
-		slot.add_child(slot_label)
+		var preview: TextureRect = TextureRect.new()
+		preview.custom_minimum_size = Vector2(32, 32)
+		preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		preview.texture = ProceduralSpriteFactory.get_unit_preview(item_name, GameManager.local_player_id)
+		preview.set_anchors_preset(Control.PRESET_FULL_RECT)
+		preview.offset_left = 8
+		preview.offset_top = 4
+		preview.offset_right = -8
+		preview.offset_bottom = -4
+		slot.add_child(preview)
+
+		var cancel_btn: Button = Button.new()
+		cancel_btn.name = "Cancel_%d" % i
+		cancel_btn.text = "X"
+		cancel_btn.custom_minimum_size = Vector2(14, 14)
+		var cancel_idx: int = i
+		cancel_btn.pressed.connect(func() -> void: _cancel_queue_item(cancel_idx))
+		var cancel_style: StyleBoxFlat = StyleBoxFlat.new()
+		cancel_style.bg_color = Color(0.6, 0.15, 0.15, 0.8)
+		cancel_style.set_corner_radius_all(7)
+		cancel_style.content_margin_left = 0
+		cancel_style.content_margin_right = 0
+		cancel_style.content_margin_top = 0
+		cancel_style.content_margin_bottom = 0
+		cancel_btn.add_theme_stylebox_override("normal", cancel_style)
+		var cancel_hover: StyleBoxFlat = StyleBoxFlat.new()
+		cancel_hover.bg_color = Color(0.8, 0.2, 0.2, 0.9)
+		cancel_hover.set_corner_radius_all(7)
+		cancel_btn.add_theme_stylebox_override("hover", cancel_hover)
+		cancel_btn.add_theme_font_size_override("font_size", 9)
+		cancel_btn.position = Vector2(34, 0)
+		cancel_btn.z_index = 2
+		slot.add_child(cancel_btn)
 
 	if _progress_bar and is_producing:
 		_progress_bar.visible = true

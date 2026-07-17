@@ -8,6 +8,7 @@ var selection_panel: Control = null
 var command_card: Control = null
 var tooltip_system: PanelContainer = null
 var notification_system: Node = null
+var building_panel: Control = null
 var victory_screen: Control = null
 var tech_tree_panel: Control = null
 var diplomacy_panel: Control = null
@@ -29,6 +30,7 @@ func _find_ui_nodes() -> void:
 	command_card = _find_node_recursive("/root/GameWorld/UILayer", "CommandCard") as Control
 	tooltip_system = _find_node_recursive("/root/GameWorld/UILayer", "TooltipSystem") as PanelContainer
 	notification_system = _find_node_recursive("/root/GameWorld", "NotificationSystem")
+	building_panel = _find_node_recursive("/root/GameWorld/UILayer", "BuildingPanel") as Control
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
@@ -292,6 +294,8 @@ func _on_selection_changed(selected_unit_ids: Array, selected_building_ids: Arra
 			selection_panel.clear()
 		if command_card:
 			command_card.show_selection([], -1)
+		if building_panel and building_panel.has_method("hide_building"):
+			building_panel.hide_building()
 		return
 
 	if selection_panel:
@@ -338,6 +342,9 @@ func _on_building_selected(building_id: int, player_id: int) -> void:
 	if produces.size() > 0 and is_constructed:
 		if selection_panel and selection_panel.has_method("show_building"):
 			selection_panel.show_building(building_data, building_node)
+
+	if building_panel and building_panel.has_method("show_building"):
+		building_panel.show_building(building_id)
 
 	if command_card:
 		command_card.show_selection([], building_id)

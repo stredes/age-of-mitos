@@ -13,10 +13,10 @@ var _close_button: Button = null
 var _title_label: Label = null
 
 var _resource_icons: Dictionary = {
-	"wood": "🪵",
-	"stone": "🪨",
-	"food": "🍖",
-	"gold": "🪙",
+	"wood": "Wood",
+	"stone": "Stone",
+	"food": "Food",
+	"gold": "Gold",
 }
 
 
@@ -188,16 +188,45 @@ func _create_building_button(building_type: String, player_id: int) -> void:
 		name_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 	inner_vbox.add_child(name_label)
 
-	var cost_label: Label = Label.new()
-	cost_label.name = "CostLabel"
-	cost_label.text = _format_cost_short(cost)
-	cost_label.add_theme_font_size_override("font_size", 11)
-	cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	if not can_afford:
-		cost_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
-	else:
-		cost_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.6))
-	inner_vbox.add_child(cost_label)
+	var description: String = building_data.get("description", "")
+	if description.is_empty():
+		description = _get_default_description(building_type)
+	var desc_label: Label = Label.new()
+	desc_label.name = "Description"
+	desc_label.text = description
+	desc_label.add_theme_font_size_override("font_size", 9)
+	desc_label.add_theme_color_override("font_color", Color(0.5, 0.55, 0.55))
+	desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_label.custom_minimum_size = Vector2(90, 0)
+	inner_vbox.add_child(desc_label)
+
+	var cost_hbox: HBoxContainer = HBoxContainer.new()
+	cost_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	cost_hbox.add_theme_constant_override("separation", 6)
+	inner_vbox.add_child(cost_hbox)
+
+	var cost_parts: PackedStringArray = []
+	for res_type: String in cost:
+		var res_name: String = res_type.capitalize()
+		var res_amount: int = cost[res_type]
+		var res_color: Color = _get_resource_color(res_type)
+		var affordable: bool = _has_resource(res_type, res_amount, player_id)
+		var part_label: Label = Label.new()
+		part_label.text = "%s %d" % [res_name, res_amount]
+		part_label.add_theme_font_size_override("font_size", 10)
+		if affordable:
+			part_label.add_theme_color_override("font_color", res_color)
+		else:
+			part_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+		cost_hbox.add_child(part_label)
+
+	if cost.is_empty():
+		var free_label: Label = Label.new()
+		free_label.text = "Free"
+		free_label.add_theme_font_size_override("font_size", 10)
+		free_label.add_theme_color_override("font_color", Color(0.4, 0.8, 0.4))
+		cost_hbox.add_child(free_label)
 
 	if not has_prereqs:
 		var prereq_label: Label = Label.new()
@@ -276,3 +305,59 @@ func _find_input_manager() -> Node:
 		return im
 	im = get_node_or_null("/root/GameWorld/World/InputManager")
 	return im
+
+
+func _get_resource_color(res_type: String) -> Color:
+	match res_type:
+		"wood":
+			return Color(0.55, 0.75, 0.35)
+		"stone":
+			return Color(0.65, 0.65, 0.7)
+		"food":
+			return Color(0.9, 0.65, 0.25)
+		"gold":
+			return Color(1.0, 0.85, 0.2)
+		_:
+			return Color(0.7, 0.7, 0.7)
+
+
+func _has_resource(res_type: String, amount: int, player_id: int) -> bool:
+	var rm: Node = get_node_or_null("/root/GameWorld/ResourceManager")
+	if rm == null:
+		rm = get_node_or_null("/root/GameWorld/World/ResourceManager")
+	if rm == null:
+		return true
+	if rm.has_method("can_afford"):
+		return rm.can_afford({res_type: amount}, player_id)
+	if rm.has_method("get_resource"):
+		var current: int = rm.get_resource(player_id, res_type)
+		return current >= amount
+	return true
+
+
+func _get_default_description(building_type: String) -> String:
+	match building_type:
+		"house":
+			return "+5 population space"
+		"lumber_camp":
+			return "Drop-off point for wood. Gather nearby trees."
+		"mill":
+			return "Drop-off point for food. Farms and hunting."
+		"mine":
+			return "Drop-off point for stone and gold."
+		"barracks":
+			return "Train infantry units."
+		"archery_range":
+			return "Train ranged units."
+		"stable":
+			return "Train cavalry units."
+		"siege_workshop":
+			return "Build siege weapons."
+		"wall":
+			return "Defensive barrier. Blocks movement."
+		"tower":
+			return "Fires arrows at enemy units."
+		"castle":
+			return "Trains unique units. Fires at enemies."
+		_:
+			return ""
