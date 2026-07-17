@@ -103,25 +103,20 @@ func find_nearest_enemy(search_range: float) -> Node2D:
 
 
 func _calculate_damage(target_node: Node2D) -> int:
-	var damage: int = attack_damage
-
-	var target_type: String = ""
+	var target_data: Dictionary = {}
+	var unit_type: String = ""
 	if target_node.has_method("get") and target_node.get("unit_type") != null:
-		target_type = target_node.unit_type
+		unit_type = target_node.unit_type
+	if not unit_type.is_empty():
+		target_data = DataManager.get_unit_data(unit_type)
 
-	if not target_type.is_empty() and bonus_vs.has(target_type):
-		damage = int(float(damage) * bonus_vs[target_type])
+	var attacker_data: Dictionary = {
+		"attack": attack_damage,
+		"range": attack_range,
+		"bonus_vs": bonus_vs,
+	}
 
-	var armor: int = 0
-	var health_comp: Node = target_node.get_node_or_null("HealthComponent")
-	if health_comp != null and health_comp.get("armor") != null:
-		armor = health_comp.armor
-	elif target_node.has_method("get") and target_node.get("armor") != null:
-		armor = target_node.armor
-
-	damage = maxi(damage - armor, 1)
-
-	return damage
+	return DamageCalculator.calculate_attack_damage(attacker_data, target_data, _is_ranged, _parent_unit.global_position if _parent_unit != null else Vector2.ZERO, target_node.global_position if target_node != null else Vector2.ZERO)
 
 
 func _apply_damage(target_node: Node2D, damage: int) -> void:

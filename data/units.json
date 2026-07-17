@@ -118,6 +118,8 @@
     "speed": 70,
     "range": 1,
     "armor": 3,
+    "armor_melee": 3,
+    "armor_ranged": 1,
     "cost": {
       "food": 60,
       "gold": 20
@@ -142,6 +144,8 @@
     "speed": 75,
     "range": 1.5,
     "armor": 2,
+    "armor_melee": 2,
+    "armor_ranged": 1,
     "cost": {
       "food": 50,
       "wood": 20
@@ -168,6 +172,8 @@
     "speed": 65,
     "range": 5,
     "armor": 1,
+    "armor_melee": 0,
+    "armor_ranged": 2,
     "cost": {
       "wood": 50,
       "gold": 20
@@ -192,6 +198,8 @@
     "speed": 120,
     "range": 1,
     "armor": 5,
+    "armor_melee": 5,
+    "armor_ranged": 3,
     "cost": {
       "food": 80,
       "gold": 40
@@ -218,6 +226,8 @@
     "speed": 40,
     "range": 8,
     "armor": 2,
+    "armor_melee": 2,
+    "armor_ranged": 2,
     "cost": {
       "wood": 100,
       "gold": 50
@@ -229,6 +239,7 @@
     "bonus_vs": {
       "building": 2.0
     },
+    "bonus_vs_buildings": 2.0,
     "gather_rate": null,
     "carry_capacity": 0,
     "line_of_sight": 8,

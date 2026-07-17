@@ -151,6 +151,50 @@ static func calculate_armor_penetration(base_damage: int, armor: int, armor_pen:
 	return maxi(base_damage - effective_armor, 1)
 
 
+static func get_effective_armor(target_data: Dictionary, is_ranged: bool) -> int:
+	if is_ranged:
+		return target_data.get("armor_ranged", target_data.get("armor", 0))
+	return target_data.get("armor_melee", target_data.get("armor", 0))
+
+
+static func calculate_attack_damage(attacker_data: Dictionary, target_data: Dictionary, is_ranged: bool = false, attacker_pos: Vector2 = Vector2.ZERO, target_pos: Vector2 = Vector2.ZERO) -> int:
+	var base_attack: int = attacker_data.get("attack", 1)
+	var effective_armor: int = get_effective_armor(target_data, is_ranged)
+	var damage: int = calculate_base_damage(base_attack, effective_armor)
+
+	var bonus_vs: Dictionary = attacker_data.get("bonus_vs", {})
+	var target_type: String = target_data.get("unit_type", "")
+	damage = calculate_bonus_damage(damage, bonus_vs, target_type)
+
+	var bonus_vs_buildings: float = attacker_data.get("bonus_vs_buildings", 0.0)
+	if bonus_vs_buildings > 0.0 and target_data.has("building_id"):
+		damage = int(float(damage) * (1.0 + bonus_vs_buildings))
+
+	var terrain_bonus: float = calculate_terrain_damage_bonus(attacker_data, target_data, attacker_pos, target_pos)
+	damage = int(float(damage) * terrain_bonus)
+
+	var crit_result: Array = calculate_critical(damage)
+	damage = crit_result[0]
+
+	return damage
+
+
+static func calculate_projectile_attack_damage(attacker_data: Dictionary, target_data: Dictionary, projectile_type: String, distance: float, attacker_pos: Vector2 = Vector2.ZERO, target_pos: Vector2 = Vector2.ZERO) -> int:
+	var base_damage: int = calculate_attack_damage(attacker_data, target_data, true, attacker_pos, target_pos)
+	var proj_data: Dictionary = get_projectile_data(projectile_type)
+	var armor_pen: int = proj_data.get("armor_pen", 0)
+
+	if armor_pen > 0:
+		var target_armor: int = get_effective_armor(target_data, true)
+		base_damage = calculate_armor_penetration(base_damage, target_armor, armor_pen)
+
+	var max_range: float = attacker_data.get("range", 8.0) * 32.0
+	if max_range > 0.0:
+		base_damage = calculate_projectile_damage(base_damage, distance, max_range)
+
+	return base_damage
+
+
 static func _get_terrain_at(_position: Vector2) -> int:
 	return Terrain.OPEN
 

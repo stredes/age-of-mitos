@@ -57,22 +57,9 @@ func process_attack(attacker: Node2D, target: Node2D) -> void:
 
 
 func calculate_damage(attacker_data: Dictionary, target_data: Dictionary, attacker_pos: Vector2 = Vector2.ZERO, target_pos: Vector2 = Vector2.ZERO) -> int:
-	var base_attack: int = attacker_data.get("attack", 1)
-	var target_armor: int = target_data.get("armor", 0)
-	var base_damage: int = DamageCalculator.calculate_base_damage(base_attack, target_armor)
-
-	var bonus_vs: Dictionary = attacker_data.get("bonus_vs", {})
-	var target_type: String = target_data.get("unit_type", "")
-	base_damage = DamageCalculator.calculate_bonus_damage(base_damage, bonus_vs, target_type)
-
-	var terrain_bonus: float = DamageCalculator.calculate_terrain_damage_bonus(attacker_data, target_data, attacker_pos, target_pos)
-	base_damage = int(float(base_damage) * terrain_bonus)
-
-	var crit_result: Array = DamageCalculator.calculate_critical(base_damage)
-	base_damage = crit_result[0]
-	var _is_crit: bool = crit_result[1]
-
-	return base_damage
+	var attack_range: float = attacker_data.get("range", 48.0)
+	var is_ranged: bool = attack_range > 48.0
+	return DamageCalculator.calculate_attack_damage(attacker_data, target_data, is_ranged, attacker_pos, target_pos)
 
 
 func apply_damage(target: Node2D, damage: int, attacker_id: int) -> int:
