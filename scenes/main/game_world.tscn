@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scenes/main/game_world.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/hud.gd" id="2"]
@@ -12,6 +12,9 @@
 [ext_resource type="Script" path="res://scripts/ui/notification_system.gd" id="10"]
 [ext_resource type="Script" path="res://scripts/ui/building_panel.gd" id="11"]
 [ext_resource type="Script" path="res://scripts/ui/touch_indicator.gd" id="12"]
+[ext_resource type="Script" path="res://scripts/ui/resource_icon_factory.gd" id="13"]
+[ext_resource type="Script" path="res://scripts/ui/population_display.gd" id="14"]
+[ext_resource type="Script" path="res://scripts/ui/quick_action_bar.gd" id="15"]
 
 [node name="GameWorld" type="Node2D"]
 script = ExtResource("1")
@@ -120,6 +123,9 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("11")
+
+[node name="ResourceIconFactory" type="Node" parent="UILayer"]
+script = ExtResource("13")
 
 [node name="UIManager" type="Node" parent="UILayer"]
 script = ExtResource("7")

@@ -25,6 +25,9 @@ var _resource_tweens: Dictionary = {}
 
 var _resource_icons: Dictionary = {}
 var _resource_icon_textures: Dictionary = {}
+var _resource_rate_labels: Dictionary = {}
+
+var _icon_factory: Node = null
 
 var _resource_colors: Dictionary = {
 	"wood": Color(0.55, 0.27, 0.07),
@@ -32,6 +35,12 @@ var _resource_colors: Dictionary = {
 	"food": Color(0.13, 0.55, 0.13),
 	"gold": Color(1.0, 0.84, 0.0),
 }
+
+# Rate tracking: circular buffer of resource snapshots.
+var _rate_snapshots: Array[Dictionary] = []
+var _rate_timer: float = 0.0
+var _rate_interval: float = 0.5
+var _rate_window: float = 5.0
 
 
 func _ready() -> void:
@@ -44,6 +53,7 @@ func _ready() -> void:
 	update_resources()
 	_update_speed_display()
 	_update_time_display()
+	call_deferred("_find_icon_factory")
 
 
 func _build_hud_ui() -> void:
@@ -166,8 +176,13 @@ func _build_hud_ui() -> void:
 	notification_label = notif
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_time_display()
+	_rate_timer += delta
+	if _rate_timer >= _rate_interval:
+		_rate_timer = 0.0
+		_record_rate_snapshot()
+		_update_rate_labels()
 
 
 func _connect_signals() -> void:
@@ -206,8 +221,7 @@ func _setup_resource_bar() -> void:
 		child.queue_free()
 	_resource_labels.clear()
 	_resource_panels.clear()
-
-	_generate_resource_icons()
+	_resource_rate_labels.clear()
 
 	var resource_types: Array[String] = ["wood", "stone", "food", "gold"]
 	for res_type: String in resource_types:
@@ -226,6 +240,10 @@ func _setup_resource_bar() -> void:
 		panel.add_theme_stylebox_override("panel", pill)
 		_resource_panels[res_type] = panel
 
+		var vbox: VBoxContainer = VBoxContainer.new()
+		vbox.name = res_type.capitalize() + "VBox"
+		vbox.add_theme_constant_override("separation", 0)
+
 		var container: HBoxContainer = HBoxContainer.new()
 		container.name = res_type.capitalize() + "Container"
 		container.add_theme_constant_override("separation", 4)
@@ -234,8 +252,9 @@ func _setup_resource_bar() -> void:
 		icon_tex.name = "Icon"
 		icon_tex.custom_minimum_size = Vector2(16, 16)
 		icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		if res_type in _resource_icon_textures:
-			icon_tex.texture = _resource_icon_textures[res_type]
+		var factory_icon: ImageTexture = _get_factory_icon(res_type)
+		if factory_icon != null:
+			icon_tex.texture = factory_icon
 		container.add_child(icon_tex)
 
 		var amount_label: Label = Label.new()
@@ -245,7 +264,17 @@ func _setup_resource_bar() -> void:
 		amount_label.add_theme_color_override("font_color", _resource_colors.get(res_type, Color.WHITE))
 		container.add_child(amount_label)
 
-		panel.add_child(container)
+		vbox.add_child(container)
+
+		var rate_label: Label = Label.new()
+		rate_label.name = "Rate"
+		rate_label.text = ""
+		rate_label.add_theme_font_size_override("font_size", 9)
+		rate_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3))
+		vbox.add_child(rate_label)
+		_resource_rate_labels[res_type] = rate_label
+
+		panel.add_child(vbox)
 		resource_bar.add_child(panel)
 		_resource_labels[res_type] = amount_label
 
@@ -459,17 +488,17 @@ func _show_single_unit(unit_id: int) -> void:
 		var unit_states: Array = unit_data.get("states", [])
 
 		if unit_type == "villager":
-			_add_action_button("🪵 Gather Wood", func() -> void: _emit_gather_command(unit_id, "wood"))
-			_add_action_button("🍖 Gather Food", func() -> void: _emit_gather_command(unit_id, "food"))
-			_add_action_button("🪨 Mine Stone", func() -> void: _emit_gather_command(unit_id, "stone"))
-			_add_action_button("🪙 Mine Gold", func() -> void: _emit_gather_command(unit_id, "gold"))
-			_add_action_button("🔨 Build", func() -> void: build_menu_requested.emit())
+			_add_action_button("Gather Wood", _get_factory_icon("chop"), func() -> void: _emit_gather_command(unit_id, "wood"))
+			_add_action_button("Gather Food", _get_factory_icon("food"), func() -> void: _emit_gather_command(unit_id, "food"))
+			_add_action_button("Mine Stone", _get_factory_icon("mine"), func() -> void: _emit_gather_command(unit_id, "stone"))
+			_add_action_button("Mine Gold", _get_factory_icon("gold"), func() -> void: _emit_gather_command(unit_id, "gold"))
+			_add_action_button("Build", _get_factory_icon("build"), func() -> void: build_menu_requested.emit())
 		else:
 			if "attack" in unit_states:
-				_add_action_button("⚔️ Attack", func() -> void: EventBus.button_pressed.emit("attack_command", GameManager.local_player_id))
+				_add_action_button("Attack", _get_factory_icon("attack"), func() -> void: EventBus.button_pressed.emit("attack_command", GameManager.local_player_id))
 			if "move" in unit_states:
-				_add_action_button("👟 Move", func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
-			_add_action_button("🛑 Stop", func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
+				_add_action_button("Move", _get_factory_icon("move"), func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
+			_add_action_button("Stop", _get_factory_icon("stop"), func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
 
 
 func _show_multi_units(unit_ids: Array) -> void:
@@ -478,9 +507,9 @@ func _show_multi_units(unit_ids: Array) -> void:
 
 	if action_bar != null:
 		action_bar.visible = true
-		_add_action_button("⚔️ Attack", func() -> void: EventBus.button_pressed.emit("attack_command", GameManager.local_player_id))
-		_add_action_button("👟 Move", func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
-		_add_action_button("🛑 Stop", func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
+		_add_action_button("Attack", _get_factory_icon("attack"), func() -> void: EventBus.button_pressed.emit("attack_command", GameManager.local_player_id))
+		_add_action_button("Move", _get_factory_icon("move"), func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
+		_add_action_button("Stop", _get_factory_icon("stop"), func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
 
 
 func _show_building(building_id: int) -> void:
@@ -600,13 +629,15 @@ func _add_building_hp_bar(building_node: Node) -> void:
 	action_panel.add_child(bar_container)
 
 
-func _add_action_button(label_text: String, callback: Callable) -> void:
+func _add_action_button(label_text: String, icon_tex: Texture2D, callback: Callable) -> void:
 	if action_bar == null:
 		return
 	var btn: Button = Button.new()
 	btn.text = label_text
 	btn.custom_minimum_size = Vector2(64, 48)
 	btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	if icon_tex != null:
+		btn.icon = icon_tex
 	btn.pressed.connect(callback)
 	action_bar.add_child(btn)
 
@@ -789,3 +820,52 @@ func _on_PauseButton_pressed() -> void:
 		GameManager.resume_game()
 	else:
 		GameManager.pause_game()
+
+
+func _find_icon_factory() -> void:
+	_icon_factory = get_node_or_null("/root/GameWorld/UILayer/ResourceIconFactory")
+	if _icon_factory == null:
+		_icon_factory = get_node_or_null("/root/GameWorld/ResourceIconFactory")
+
+
+func _get_factory_icon(type: String) -> ImageTexture:
+	if _icon_factory != null and _icon_factory.has_method("get_icon"):
+		return _icon_factory.get_icon(type, 16)
+	return null
+
+
+func _record_rate_snapshot() -> void:
+	var snapshot: Dictionary = GameManager.get_resources()
+	snapshot["_time"] = Time.get_ticks_msec() / 1000.0
+	_rate_snapshots.append(snapshot)
+
+	# Trim old snapshots beyond window.
+	var cutoff: float = snapshot["_time"] - _rate_window
+	while _rate_snapshots.size() > 1 and _rate_snapshots[0].get("_time", 0.0) < cutoff:
+		_rate_snapshots.remove_at(0)
+
+
+func _update_rate_labels() -> void:
+	if _rate_snapshots.size() < 2:
+		return
+	var oldest: Dictionary = _rate_snapshots[0]
+	var newest: Dictionary = _rate_snapshots[_rate_snapshots.size() - 1]
+	var dt: float = newest.get("_time", 0.0) - oldest.get("_time", 0.0)
+	if dt <= 0.0:
+		return
+
+	for res_type: String in _resource_rate_labels:
+		var lbl: Label = _resource_rate_labels[res_type]
+		if lbl == null:
+			continue
+		var old_val: int = oldest.get(res_type, 0)
+		var new_val: int = newest.get(res_type, 0)
+		var rate: float = float(new_val - old_val) / dt
+		if absf(rate) < 0.05:
+			lbl.text = ""
+		elif rate > 0.0:
+			lbl.text = "+%.1f/s" % rate
+			lbl.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3))
+		else:
+			lbl.text = "%.1f/s" % rate
+			lbl.add_theme_color_override("font_color", Color(0.85, 0.3, 0.3))
