@@ -58,6 +58,7 @@ var save_manager: Node = null
 var particle_effects: ParticleEffectsManager = null
 var decorative_world: DecorativeWorldAnimations = null
 var weather_system: Node = null
+var android_controls: Node = null
 var ai_directors: Dictionary = {}
 
 # =============================================================================
@@ -96,6 +97,12 @@ func _process(delta: float) -> void:
 # =============================================================================
 
 func _create_system_nodes() -> void:
+	# Android gesture coordinator (must exist before Camera and Input).
+	android_controls = Node.new()
+	android_controls.name = "AndroidControls"
+	android_controls.set_script(load("res://scripts/core/android_controls.gd"))
+	add_child(android_controls)
+
 	# Camera (must be a Camera2D to function).
 	camera_controller = CameraController.new()
 	camera_controller.name = "Camera2D"

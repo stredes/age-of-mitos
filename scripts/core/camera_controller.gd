@@ -88,6 +88,10 @@ var _two_finger_active: bool = false
 
 ## Whether we are currently in a pinch gesture.
 var _is_pinching: bool = false
+
+## Reference to AndroidControls gesture coordinator.
+var _android_controls: Node = null
+
 var _shake_strength: float = 0.0
 var _shake_duration: float = 0.0
 var _shake_timer: float = 0.0
@@ -103,6 +107,11 @@ func _ready() -> void:
 	# Center camera on the middle of the map at start.
 	position = map_size * 0.5
 	make_current()
+	call_deferred("_find_android_controls")
+
+
+func _find_android_controls() -> void:
+	_android_controls = get_node_or_null("/root/GameWorld/AndroidControls")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -153,41 +162,39 @@ func _handle_screen_touch(event: InputEventScreenTouch) -> void:
 	var idx: int = event.index
 
 	if event.pressed:
-		# Finger touched down.
 		_active_touches[idx] = event.position
 
 		if _active_touches.size() == 1:
-			# Single finger — prepare for pan or tap.
+			# Single finger down — check if AndroidControls says it's a selection gesture.
+			if _android_controls != null and _android_controls.has_method("is_selection_gesture"):
+				if _android_controls.is_selection_gesture():
+					# Don't start panning — InputManager handles this touch.
+					_is_panning = false
+					return
 			_is_panning = true
 			_velocity = Vector2.ZERO
 			_drag_start_screen = event.position
 			_drag_start_world = _screen_to_world(event.position)
 		elif _active_touches.size() == 2:
-			# Second finger down — begin pinch.
 			_is_panning = false
 			_is_pinching = true
 			_two_finger_active = true
 			_begin_pinch()
 	else:
-		# Finger lifted.
 		_active_touches.erase(idx)
 
 		if _active_touches.size() == 0:
 			if _is_pinching:
-				# Pinch ended.
 				_is_pinching = false
 				_two_finger_active = false
 			elif _is_panning:
-				# Check if this was a tap (negligible drag distance).
 				var drag_dist: float = event.position.distance_to(_drag_start_screen)
 				if drag_dist < double_tap_tolerance:
 					_handle_tap(event.position)
 				_is_panning = false
 		elif _active_touches.size() == 1:
-			# Went from 2 fingers to 1 — resume single-finger pan.
 			_is_pinching = false
 			_two_finger_active = false
-			# Re-anchor pan to the remaining finger.
 			var remaining_idx: int = _active_touches.keys()[0]
 			_drag_start_screen = _active_touches[remaining_idx]
 			_drag_start_world = _screen_to_world(_active_touches[remaining_idx])
@@ -202,12 +209,14 @@ func _handle_screen_drag(event: InputEventScreenDrag) -> void:
 	if _is_pinching and _active_touches.size() >= 2:
 		_update_pinch()
 	elif _is_panning and _active_touches.size() == 1:
-		# Pan by the delta of the drag.
+		# Check AndroidControls — if it's a selection gesture, don't pan.
+		if _android_controls != null and _android_controls.has_method("is_selection_gesture"):
+			if _android_controls.is_selection_gesture():
+				return
 		var delta_screen: Vector2 = event.relative
-		# Convert screen-space delta to world-space delta (accounting for zoom).
 		var delta_world: Vector2 = delta_screen / zoom.x
 		position -= delta_world
-		_velocity = -delta_world * 60.0  # Approximate velocity for inertia.
+		_velocity = -delta_world * 60.0
 		_clamp_to_map_bounds()
 		EventBus.camera_moved.emit(position)
 

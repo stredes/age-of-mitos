@@ -77,12 +77,26 @@ var selected_unit_ids: Array[int] = []
 ## IDs of buildings currently selected by the player.
 var selected_building_ids: Array[int] = []
 
+## Reference to AndroidControls gesture coordinator (found in _ready).
+var _android_controls: Node = null
+
+## Reference to TouchIndicator for visual feedback.
+var _touch_indicator: Node = null
+
 # =============================================================================
 # Lifecycle
 # =============================================================================
 
 func _ready() -> void:
 	_setup_selection_rect()
+	call_deferred("_find_android_controls")
+
+
+func _find_android_controls() -> void:
+	_android_controls = get_node_or_null("/root/GameWorld/AndroidControls")
+	_touch_indicator = get_node_or_null("/root/GameWorld/TouchLayer/TouchIndicator")
+	if _touch_indicator == null:
+		_touch_indicator = get_node_or_null("/root/GameWorld/UILayer/TouchIndicator")
 
 
 func _process(_delta: float) -> void:
@@ -115,6 +129,12 @@ func _unhandled_input(event: InputEvent) -> void:
 # =============================================================================
 
 func _handle_touch(event: InputEventScreenTouch) -> void:
+	# AndroidControls coordinates which system handles the gesture.
+	# If a camera gesture (pinch) is active, don't process selection.
+	if _android_controls != null and _android_controls.has_method("is_camera_gesture"):
+		if _android_controls.is_camera_gesture():
+			return
+
 	if event.pressed:
 		_press_start_screen = event.position
 		_press_start_world = _screen_to_world(event.position)
@@ -135,18 +155,20 @@ func _handle_drag(event: InputEventScreenDrag) -> void:
 	if not _is_pressed:
 		return
 
+	# Don't process drag if camera is handling the gesture.
+	if _android_controls != null and _android_controls.has_method("is_camera_gesture"):
+		if _android_controls.is_camera_gesture():
+			return
+
 	var dist: float = event.position.distance_to(_press_start_screen)
 	if dist > click_threshold:
 		if not _has_dragged:
 			_has_dragged = true
-			# Check for long press threshold.
 			var elapsed: float = (Time.get_ticks_msec() / 1000.0) - _press_start_time
 			if elapsed >= long_press_duration or has_build_mode:
 				if not has_build_mode:
 					_begin_selection_box()
 			else:
-				# Started dragging before long press — could become a selection box
-				# once the long press time is reached.
 				pass
 
 		if _is_selecting:
@@ -395,11 +417,16 @@ func _begin_selection_box() -> void:
 	_selection_origin_screen = _press_start_screen
 	EventBus.selection_started.emit(_press_start_world)
 
+	if _touch_indicator != null and _touch_indicator.has_method("begin_selection_box"):
+		_touch_indicator.begin_selection_box(_press_start_screen)
+
 
 ## Update the selection rectangle visual each frame.
 func _update_selection_rect_visual() -> void:
 	if _selection_rect != null:
 		_selection_rect.queue_redraw()
+	if _touch_indicator != null and _touch_indicator.has_method("update_selection_box"):
+		_touch_indicator.update_selection_box(_current_screen_pos)
 
 
 ## Draw the selection rectangle on screen.
@@ -418,6 +445,9 @@ func _draw_selection_rect() -> void:
 func _end_selection_box() -> void:
 	_is_selecting = false
 	_selection_rect.queue_redraw()
+
+	if _touch_indicator != null and _touch_indicator.has_method("end_selection_box"):
+		_touch_indicator.end_selection_box()
 
 	var start_world: Vector2 = _press_start_world
 	var end_world: Vector2 = _screen_to_world(_current_screen_pos)

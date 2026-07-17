@@ -296,7 +296,15 @@ func _on_selection_changed(selected_unit_ids: Array, selected_building_ids: Arra
 			command_card.show_selection([], -1)
 		if building_panel and building_panel.has_method("hide_building"):
 			building_panel.hide_building()
+		_close_all_menus()
 		return
+
+	# Switching from building to unit selection — close building-related menus.
+	if selected_unit_ids.size() > 0 and selected_building_ids.size() == 0:
+		if train_menu and train_menu.visible:
+			close_train_menu()
+		if building_panel and building_panel.has_method("hide_building"):
+			building_panel.hide_building()
 
 	if selection_panel:
 		if selected_unit_ids.size() > 0:
