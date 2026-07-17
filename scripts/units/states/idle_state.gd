@@ -52,11 +52,24 @@ func _check_auto_aggro() -> void:
 	if unit == null:
 		return
 
+	# Check stance system first.
+	var stance_sys: Node = unit.get_node_or_null("StanceSystem")
+	if stance_sys != null:
+		if not stance_sys.should_auto_attack():
+			return
+		var aggro_range: float = stance_sys.get_aggro_range()
+		if aggro_range <= 0.0:
+			return
+
 	var combat: Node = unit.get_node_or_null("CombatComponent")
 	if combat == null:
 		return
 
-	var nearest_enemy: Node2D = combat.find_nearest_enemy(AUTO_AGGRO_RANGE)
+	var search_range: float = AUTO_AGGRO_RANGE
+	if stance_sys != null and stance_sys.has_method("get_aggro_range"):
+		search_range = stance_sys.get_aggro_range()
+
+	var nearest_enemy: Node2D = combat.find_nearest_enemy(search_range)
 	if nearest_enemy != null:
 		combat.set_target(nearest_enemy)
 		state_machine.change_state("AttackState")

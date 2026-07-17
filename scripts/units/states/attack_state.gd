@@ -65,7 +65,7 @@ func update(delta: float) -> void:
 			_chase_timer = 0.0
 			_chase_target()
 
-	if dist > 400.0:
+	if dist > _get_chase_limit():
 		combat.clear_target()
 		target_node = null
 		state_machine.change_state("IdleState")
@@ -106,3 +106,12 @@ func _get_anim_controller() -> Node:
 	if unit == null:
 		return null
 	return unit.get_node_or_null("UnitAnimationController")
+
+
+func _get_chase_limit() -> float:
+	var stance_sys: Node = unit.get_node_or_null("StanceSystem") if unit != null else null
+	if stance_sys != null and stance_sys.has_method("get_chase_limit"):
+		var limit: float = stance_sys.get_chase_limit()
+		if limit > 0.0:
+			return limit
+	return 400.0

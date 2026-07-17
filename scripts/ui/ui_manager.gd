@@ -18,6 +18,8 @@ var unit_portrait: PanelContainer = null
 var stance_button: Button = null
 var error_display: Node = null
 var victory_defeat_screen: Node = null
+var rally_point_system: Node = null
+var hotkey_panel: HBoxContainer = null
 var _pause_menu: Control = null
 var _open_menu: String = ""
 
@@ -43,6 +45,8 @@ func _find_ui_nodes() -> void:
 	stance_button = _find_node_recursive("/root/GameWorld/UILayer", "StanceButton") as Button
 	error_display = _find_node_recursive("/root/GameWorld", "ErrorDisplay")
 	victory_defeat_screen = _find_node_recursive("/root/GameWorld", "VictoryDefeatScreen")
+	rally_point_system = _find_node_recursive("/root/GameWorld", "RallyPointSystem")
+	hotkey_panel = _find_node_recursive("/root/GameWorld/UILayer", "HotkeyPanel") as HBoxContainer
 	victory_screen = _find_node_recursive("/root/GameWorld/UILayer", "VictoryScreen") as Control
 	tech_tree_panel = _find_node_recursive("/root/GameWorld/UILayer", "TechTreePanel") as Control
 	diplomacy_panel = _find_node_recursive("/root/GameWorld/UILayer", "DiplomacyPanel") as Control
