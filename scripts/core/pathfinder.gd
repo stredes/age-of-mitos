@@ -1,9 +1,9 @@
-## AStarGrid2D-based pathfinder for grid-aligned unit movement.
+## AStarGrid2D-based pathfinder with path caching and flow fields.
 ##
 ## Wraps Godot's AStarGrid2D to provide pathfinding that stays in sync with
 ## the GridManager's walkability data. Supports dynamic obstacle updates,
-## finding the furthest walkable cell along a direction, and converting
-## between grid cells and world positions.
+## path caching for frequently requested routes, and flow field generation
+## for group movement.
 class_name Pathfinder
 extends Node
 
@@ -17,39 +17,48 @@ extends Node
 ## Allow diagonal movement in paths.
 @export var allow_diagonal: bool = false
 
-## Penalty added to cells that are adjacent to blocked cells, encouraging
-## paths to stay away from walls (useful for larger units).
+## Penalty added to cells adjacent to blocked cells.
 @export var adjacent_wall_penalty: float = 0.0
+
+## Maximum number of cached paths. LRU eviction when exceeded.
+@export var max_cache_size: int = 256
+
+## Cache entries older than this (in frames) are eligible for eviction.
+@export var cache_ttl_frames: int = 600  # ~10 seconds at 60fps
+
+## Maximum age of a cached path in frames before forced invalidation.
+@export var cache_max_age: int = 1800  # ~30 seconds
 
 # =============================================================================
 # Signals
 # =============================================================================
 
-## Emitted when the pathfinder recalculates its walkability data.
 signal pathfinder_rebuilt()
+signal cache_invalidated()
 
 # =============================================================================
 # Internal State
 # =============================================================================
 
-## The AStarGrid2D instance used for pathfinding.
 var _astar: AStarGrid2D = null
-
-## Reference to the GridManager for walkability data.
 var _grid_manager: Node = null
-
-## Grid dimensions cached from GridManager.
 var _grid_size: Vector2i = Vector2i.ZERO
-
-## Cell size cached from GridManager.
 var _cell_size: Vector2i = Vector2i(32, 32)
-
-## Whether the pathfinder has been initialized.
 var _initialized: bool = false
-
-## Set of cells temporarily blocked for unit collision avoidance.
-## Key: Vector2i, Value: true. These are cleared on rebuild.
 var _temporarily_blocked: Dictionary = {}
+
+## Path cache: "start_x,start_y->end_x,end_y" → { path: Array[Vector2i], age: int, hits: int }
+var _path_cache: Dictionary = {}
+
+## Cache access order for LRU eviction.
+var _cache_order: Array[String] = []
+
+## Flow field cache: cell → direction Vector2
+var _flow_field_cache: Dictionary = {}
+var _flow_field_target: Vector2i = Vector2i(-1, -1)
+
+## Frame counter for cache aging.
+var _frame_count: int = 0
 
 # =============================================================================
 # Lifecycle
@@ -57,11 +66,19 @@ var _temporarily_blocked: Dictionary = {}
 
 func _ready() -> void:
 	_astar = AStarGrid2D.new()
-	# Defer initialization to allow the scene tree to settle.
 	call_deferred("_initialize")
 
 
-## Initialize the pathfinder by finding the GridManager and building the grid.
+func _process(_delta: float) -> void:
+	_frame_count += 1
+	# Evict stale cache entries every 60 frames.
+	if _frame_count % 60 == 0:
+		_evict_stale_cache()
+
+# =============================================================================
+# Initialization
+# =============================================================================
+
 func _initialize() -> void:
 	_grid_manager = _find_grid_manager()
 	if _grid_manager == null:
@@ -80,7 +97,6 @@ func _initialize() -> void:
 	_mark_walkable_cells()
 	_initialized = true
 
-	# Listen for grid changes to rebuild pathfinding data.
 	if _grid_manager.has_signal("grid_changed"):
 		_grid_manager.grid_changed.connect(_on_grid_changed)
 
@@ -90,7 +106,6 @@ func _initialize() -> void:
 # Grid Building
 # =============================================================================
 
-## Mark all non-walkable cells in the AStarGrid2D as solid.
 func _mark_walkable_cells() -> void:
 	for y in range(_grid_size.y):
 		for x in range(_grid_size.x):
@@ -103,7 +118,6 @@ func _mark_walkable_cells() -> void:
 					_apply_adjacency_penalties(cell)
 
 
-## Apply movement cost penalties to walkable cells adjacent to walls.
 func _apply_adjacency_penalties(cell: Vector2i) -> void:
 	if adjacent_wall_penalty <= 0.0:
 		return
@@ -116,8 +130,6 @@ func _apply_adjacency_penalties(cell: Vector2i) -> void:
 		_astar.set_point_weight_scale(cell, 1.0 + (adjacent_wall_penalty * blocked_neighbors))
 
 
-## Rebuild the entire AStarGrid2D from current GridManager walkability.
-## Called when the grid changes (building placed/destroyed, terrain edited).
 func rebuild() -> void:
 	if _grid_manager == null:
 		return
@@ -129,17 +141,15 @@ func rebuild() -> void:
 
 	_mark_walkable_cells()
 
-	# Re-apply temporary blocks.
 	for cell: Vector2i in _temporarily_blocked:
 		if _is_in_bounds(cell):
 			_astar.set_point_solid(cell, true)
 
 	_initialized = true
+	invalidate_cache()
 	pathfinder_rebuilt.emit()
 
 
-## Refresh the pathfinder incrementally — only update cells that changed.
-## Faster than a full rebuild for small changes (single building placed).
 func refresh_cell(cell: Vector2i) -> void:
 	if not _initialized or _grid_manager == null:
 		return
@@ -149,11 +159,10 @@ func refresh_cell(cell: Vector2i) -> void:
 	_astar.set_point_solid(cell, is_solid)
 
 # =============================================================================
-# Pathfinding
+# Pathfinding (with cache)
 # =============================================================================
 
-## Find a path between two grid cells. Returns an Array of Vector2i.
-## Returns an empty array if no path exists.
+## Find a path between two grid cells. Uses cache if available.
 func find_path(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
 	if not _initialized:
 		push_warning("Pathfinder: Not initialized.")
@@ -162,7 +171,16 @@ func find_path(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
 	if not _is_in_bounds(start_cell) or not _is_in_bounds(end_cell):
 		return []
 
-	# If start or end is solid, try to find the nearest walkable cell.
+	# Check cache first.
+	var cache_key: String = _make_cache_key(start_cell, end_cell)
+	if _path_cache.has(cache_key):
+		var entry: Dictionary = _path_cache[cache_key]
+		entry["hits"] += 1
+		entry["age"] = _frame_count
+		_touch_cache(cache_key)
+		return entry["path"].duplicate()
+
+	# Handle solid start/end cells.
 	if _astar.is_point_solid(start_cell):
 		start_cell = _get_nearest_walkable(start_cell)
 		if start_cell == Vector2i(-1, -1):
@@ -180,10 +198,14 @@ func find_path(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	for point: Vector2 in path:
 		result.append(Vector2i(int(point.x), int(point.y)))
+
+	# Store in cache.
+	_store_in_cache(cache_key, result)
+
 	return result
 
 
-## Find a path and return world-space positions (cell centers).
+## Find a path and return world-space positions.
 func find_path_world(start_pos: Vector2, end_pos: Vector2) -> Array[Vector2]:
 	var start_cell: Vector2i = _world_to_cell(start_pos)
 	var end_cell: Vector2i = _world_to_cell(end_pos)
@@ -194,19 +216,17 @@ func find_path_world(start_pos: Vector2, end_pos: Vector2) -> Array[Vector2]:
 	return world_path
 
 
-## Find a path but return only world positions for movement (skips start cell
-## since the unit is already there).
+## Find a path but return only world positions for movement (skips start cell).
 func find_path_for_movement(start_pos: Vector2, end_pos: Vector2) -> Array[Vector2]:
 	var world_path: Array[Vector2] = find_path_world(start_pos, end_pos)
 	if world_path.size() > 0:
-		world_path.pop_front()  # Remove the start position (unit is already there).
+		world_path.pop_front()
 	return world_path
 
 # =============================================================================
 # Path Validation
 # =============================================================================
 
-## Check whether a path is valid (non-empty and all points are walkable).
 func is_valid_path(path: Array[Vector2i]) -> bool:
 	if path.is_empty():
 		return false
@@ -218,21 +238,73 @@ func is_valid_path(path: Array[Vector2i]) -> bool:
 	return true
 
 
-## Check whether a direct path (no intermediate points) exists between two cells.
 func has_direct_path(start_cell: Vector2i, end_cell: Vector2i) -> bool:
 	var path: Array[Vector2i] = find_path(start_cell, end_cell)
-	return path.size() == 2  # Start + End only = straight line.
+	return path.size() == 2
+
+# =============================================================================
+# Flow Field (for group movement)
+# =============================================================================
+
+## Generate a flow field towards a target cell. Returns a dictionary mapping
+## each walkable cell to a normalized direction Vector2.
+func generate_flow_field(target: Vector2i) -> Dictionary:
+	if not _initialized:
+		return {}
+
+	# Check cache.
+	if _flow_field_target == target and not _flow_field_cache.is_empty():
+		return _flow_field_cache
+
+	var flow: Dictionary = {}
+	var visited: Dictionary = {}
+	var queue: Array[Vector2i] = [target]
+	visited[target] = true
+	flow[target] = Vector2.ZERO
+
+	var directions: Array[Vector2i] = [
+		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+	]
+	if allow_diagonal:
+		directions.append_array([
+			Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
+		])
+
+	while not queue.is_empty():
+		var current: Vector2i = queue.pop_front()
+		var current_world: Vector2 = _cell_to_world(current)
+
+		for dir: Vector2i in directions:
+			var neighbor: Vector2i = current + dir
+			if not _is_in_bounds(neighbor):
+				continue
+			if visited.has(neighbor):
+				continue
+			if not _is_walkable_cell(neighbor):
+				continue
+
+			visited[neighbor] = true
+			var neighbor_world: Vector2 = _cell_to_world(neighbor)
+			var to_target: Vector2 = (current_world - neighbor_world).normalized()
+			flow[neighbor] = to_target
+			queue.append(neighbor)
+
+	_flow_field_cache = flow
+	_flow_field_target = target
+	return flow
+
+
+## Get movement direction from a flow field for a given position.
+func get_flow_direction(flow_field: Dictionary, cell: Vector2i) -> Vector2:
+	return flow_field.get(cell, Vector2.ZERO)
 
 # =============================================================================
 # Utility
 # =============================================================================
 
-## Find the furthest walkable cell in the direction from `from` to `to`,
-## up to max_distance cells. Useful for when a unit can't reach its exact
-## destination but should move as close as possible.
 func get_furthest_walkable(from: Vector2i, to: Vector2i, max_distance: int = -1) -> Vector2i:
 	if max_distance <= 0:
-		max_distance = _grid_size.x + _grid_size.y  # Effectively unlimited.
+		max_distance = _grid_size.x + _grid_size.y
 
 	var direction: Vector2 = Vector2(to - from)
 	var dist: float = direction.length()
@@ -243,10 +315,8 @@ func get_furthest_walkable(from: Vector2i, to: Vector2i, max_distance: int = -1)
 	var best: Vector2i = from
 	var best_dist: float = 0.0
 
-	# Step along the direction in fractional cell increments.
 	var steps: int = mini(ceili(dist), max_distance)
 	for i in range(1, steps + 1):
-		var frac: float = float(i) / dist
 		var candidate: Vector2i = Vector2i(
 			floori(float(from.x) + dir_normalized.x * float(i)),
 			floori(float(from.y) + dir_normalized.y * float(i))
@@ -261,24 +331,6 @@ func get_furthest_walkable(from: Vector2i, to: Vector2i, max_distance: int = -1)
 	return best
 
 
-## Find the nearest walkable cell to a given cell within a search radius.
-func _get_nearest_walkable(cell: Vector2i, search_radius: int = 10) -> Vector2i:
-	if _is_walkable_cell(cell):
-		return cell
-
-	for r in range(1, search_radius + 1):
-		for dy in range(-r, r + 1):
-			for dx in range(-r, r + 1):
-				if absi(dx) != r and absi(dy) != r:
-					continue  # Only check the perimeter of each radius.
-				var candidate: Vector2i = cell + Vector2i(dx, dy)
-				if _is_in_bounds(candidate) and _is_walkable_cell(candidate):
-					return candidate
-
-	return Vector2i(-1, -1)
-
-
-## Get the estimated cost of a path between two cells (heuristic only, no actual pathfinding).
 func estimate_cost(from_cell: Vector2i, to_cell: Vector2i) -> float:
 	if not _initialized:
 		return 0.0
@@ -287,40 +339,115 @@ func estimate_cost(from_cell: Vector2i, to_cell: Vector2i) -> float:
 	)
 
 # =============================================================================
-# Temporary Block / Unblock (Unit Collision)
+# Temporary Block / Unblock
 # =============================================================================
 
-## Temporarily block a cell for unit collision avoidance. The cell will be
-## treated as solid until unblocked. These blocks are cleared on rebuild.
 func temporarily_block(cell: Vector2i) -> void:
 	if not _is_in_bounds(cell):
 		return
 	_temporarily_blocked[cell] = true
 	if _initialized:
 		_astar.set_point_solid(cell, true)
+	invalidate_cache_near(cell)
 
 
-## Remove a temporary block from a cell.
 func unblock(cell: Vector2i) -> void:
 	_temporarily_blocked.erase(cell)
 	if _initialized and _is_in_bounds(cell):
-		# Only unblock if the cell is actually walkable in the grid.
 		if _grid_manager != null and _grid_manager.is_walkable(cell):
 			_astar.set_point_solid(cell, false)
+	invalidate_cache_near(cell)
 
 
-## Clear all temporary blocks.
 func clear_temporary_blocks() -> void:
 	_temporarily_blocked.clear()
 	if _initialized:
-		# Rebuild to restore correct solid state.
 		rebuild()
+
+# =============================================================================
+# Cache Management
+# =============================================================================
+
+func _make_cache_key(start: Vector2i, end: Vector2i) -> String:
+	return "%d,%d->%d,%d" % [start.x, start.y, end.x, end.y]
+
+
+func _store_in_cache(key: String, path: Array[Vector2i]) -> void:
+	# Evict LRU if at capacity.
+	while _cache_order.size() >= max_cache_size:
+		var oldest: String = _cache_order.pop_front()
+		_path_cache.erase(oldest)
+
+	_path_cache[key] = {
+		"path": path.duplicate(),
+		"age": _frame_count,
+		"hits": 0,
+	}
+	_cache_order.append(key)
+
+
+func _touch_cache(key: String) -> void:
+	var idx: int = _cache_order.find(key)
+	if idx >= 0:
+		_cache_order.remove_at(idx)
+	_cache_order.append(key)
+
+
+func _evict_stale_cache() -> void:
+	var to_remove: Array[String] = []
+	for key: String in _cache_order:
+		var entry: Dictionary = _path_cache.get(key, {})
+		var age: int = entry.get("age", 0)
+		if _frame_count - age > cache_max_age:
+			to_remove.append(key)
+
+	for key: String in to_remove:
+		_path_cache.erase(key)
+		var idx: int = _cache_order.find(key)
+		if idx >= 0:
+			_cache_order.remove_at(idx)
+
+
+## Invalidate all cached paths. Called on grid rebuild.
+func invalidate_cache() -> void:
+	_path_cache.clear()
+	_cache_order.clear()
+	_flow_field_cache.clear()
+	_flow_field_target = Vector2i(-1, -1)
+	cache_invalidated.emit()
+
+
+## Invalidate cached paths that pass through a specific cell.
+func invalidate_cache_near(cell: Vector2i) -> void:
+	var to_remove: Array[String] = []
+	for key: String in _cache_order:
+		var entry: Dictionary = _path_cache.get(key, {})
+		var path: Array = entry.get("path", [])
+		for point: Vector2i in path:
+			if absi(point.x - cell.x) <= 1 and absi(point.y - cell.y) <= 1:
+				to_remove.append(key)
+				break
+
+	for key: String in to_remove:
+		_path_cache.erase(key)
+		var idx: int = _cache_order.find(key)
+		if idx >= 0:
+			_cache_order.remove_at(idx)
+
+
+## Get cache statistics.
+func get_cache_stats() -> Dictionary:
+	return {
+		"cache_size": _path_cache.size(),
+		"max_cache_size": max_cache_size,
+		"flow_field_cached": not _flow_field_cache.is_empty(),
+		"flow_field_target": _flow_field_target,
+	}
 
 # =============================================================================
 # Coordinate Conversion
 # =============================================================================
 
-## Convert a world position to grid cell coordinates.
 func _world_to_cell(world_pos: Vector2) -> Vector2i:
 	return Vector2i(
 		floori(world_pos.x / float(_cell_size.x)),
@@ -328,7 +455,6 @@ func _world_to_cell(world_pos: Vector2) -> Vector2i:
 	)
 
 
-## Convert a grid cell to the world-space center of that cell.
 func _cell_to_world(cell: Vector2i) -> Vector2:
 	return Vector2(
 		cell.x * _cell_size.x + _cell_size.x * 0.5,
@@ -336,22 +462,38 @@ func _cell_to_world(cell: Vector2i) -> Vector2:
 	)
 
 
-## Check if grid coordinates are within bounds.
 func _is_in_bounds(cell: Vector2i) -> bool:
 	return cell.x >= 0 and cell.x < _grid_size.x and cell.y >= 0 and cell.y < _grid_size.y
 
 
-## Check if a cell is walkable via the GridManager.
 func _is_walkable_cell(cell: Vector2i) -> bool:
 	if _grid_manager == null:
 		return false
 	return _grid_manager.is_walkable(cell)
 
 # =============================================================================
+# Nearest Walkable
+# =============================================================================
+
+func _get_nearest_walkable(cell: Vector2i, search_radius: int = 10) -> Vector2i:
+	if _is_walkable_cell(cell):
+		return cell
+
+	for r in range(1, search_radius + 1):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if absi(dx) != r and absi(dy) != r:
+					continue
+				var candidate: Vector2i = cell + Vector2i(dx, dy)
+				if _is_in_bounds(candidate) and _is_walkable_cell(candidate):
+					return candidate
+
+	return Vector2i(-1, -1)
+
+# =============================================================================
 # Scene Tree Helpers
 # =============================================================================
 
-## Recursively search the scene tree for a GridManager node.
 func _find_grid_manager() -> Node:
 	var scene: Node = get_tree().current_scene
 	if scene == null:
@@ -372,6 +514,5 @@ func _find_grid_manager_recursive(node: Node) -> Node:
 # Callbacks
 # =============================================================================
 
-## Called when GridManager emits grid_changed. Rebuilds pathfinding data.
 func _on_grid_changed() -> void:
 	rebuild()
