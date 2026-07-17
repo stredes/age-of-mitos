@@ -17,6 +17,22 @@ extends Node
 ## [param player_id: int] The player whose resource changed.
 signal resource_changed(resource_type: String, amount: int, player_id: int)
 
+## Emitted when multiple resources change at once (e.g., after a trade or cost payment).
+## [param resources: Dictionary] Map of resource_type -> new amount.
+## [param player_id: int] The player whose resources changed.
+signal resources_changed(resources: Dictionary, player_id: int)
+
+## Emitted when a player's population changes.
+## [param current: int] Current population.
+## [param max_pop: int] Maximum population capacity.
+## [param player_id: int] The player whose population changed.
+signal population_changed(current: int, max_pop: int, player_id: int)
+
+## Emitted when the count of idle villagers changes.
+## [param count: int] Number of idle villagers.
+## [param player_id: int] The player whose idle villagers changed.
+signal idle_villagers_changed(count: int, player_id: int)
+
 ## Emitted when resources are gathered/collected by a unit.
 ## [param resource_type: String] The type collected.
 ## [param amount: int] How much was collected.
@@ -67,6 +83,12 @@ signal unit_died(unit_id: int, killer_id: int, player_id: int)
 ## [param position: Vector2] Spawn position in world coordinates.
 signal unit_spawned(unit_id: int, unit_type: String, player_id: int, position: Vector2)
 
+## Emitted when a unit finishes training at a building.
+## [param unit_type: String] The type of unit trained.
+## [param building_id: int] The building that produced it.
+## [param player_id: int] The owning player.
+signal unit_trained(unit_type: String, building_id: int, player_id: int)
+
 # =============================================================================
 # Building Signals
 # =============================================================================
@@ -82,6 +104,14 @@ signal building_placed(building_id: int, building_type: String, player_id: int, 
 ## [param building_id: int] The completed building.
 ## [param player_id: int] The owning player.
 signal building_completed(building_id: int, player_id: int)
+
+## Emitted when a Town Center is built.
+## [param player_id: int] The owning player.
+signal town_center_built(player_id: int)
+
+## Emitted when a Town Center is destroyed.
+## [param player_id: int] The owning player.
+signal town_center_destroyed(player_id: int)
 
 ## Emitted when a building is destroyed.
 ## [param building_id: int] The destroyed building.

@@ -5,6 +5,8 @@ var minimap: Control = null
 var build_menu: Control = null
 var train_menu: Control = null
 var selection_panel: Control = null
+var quick_action_bar: Control = null
+var population_display: Control = null
 var _pause_menu: Control = null
 var _game_over_panel: Control = null
 var _open_menu: String = ""
@@ -21,6 +23,8 @@ func _find_ui_nodes() -> void:
 	build_menu = _find_node_recursive("/root/GameWorld/UILayer", "BuildMenu") as Control
 	train_menu = _find_node_recursive("/root/GameWorld/UILayer", "TrainMenu") as Control
 	selection_panel = _find_node_recursive("/root/GameWorld/UILayer", "SelectionPanel") as Control
+	quick_action_bar = _find_node_recursive("/root/GameWorld/UILayer", "QuickActionBar") as Control
+	population_display = _find_node_recursive("/root/GameWorld/UILayer", "PopulationDisplay") as Control
 
 	if hud and hud.has_signal("build_menu_requested"):
 		if not hud.build_menu_requested.is_connected(open_build_menu):

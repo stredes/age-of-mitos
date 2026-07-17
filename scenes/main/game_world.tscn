@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/ui/train_menu.gd" id="5"]
 [ext_resource type="Script" path="res://scripts/ui/selection_panel.gd" id="6"]
 [ext_resource type="Script" path="res://scripts/ui/ui_manager.gd" id="7"]
+[ext_resource type="Script" path="res://scripts/ui/population_display.gd" id="9"]
 
 [node name="GameWorld" type="Node2D"]
 script = ExtResource("1")
@@ -65,6 +66,8 @@ grow_horizontal = 0
 grow_vertical = 0
 script = ExtResource("5")
 
+[ext_resource type="Script" path="res://scripts/ui/quick_action_bar.gd" id="8"]
+
 [node name="SelectionPanel" type="Control" parent="UILayer"]
 layout_mode = 1
 anchors_preset = 12
@@ -75,6 +78,36 @@ offset_top = -120.0
 grow_horizontal = 2
 grow_vertical = 0
 script = ExtResource("6")
+
+[node name="QuickActionBar" type="Control" parent="UILayer"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 0.0
+anchor_top = 1.0
+anchor_right = 0.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -90.0
+offset_right = 280.0
+offset_bottom = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("8")
+
+[node name="PopulationDisplay" type="Control" parent="UILayer"]
+layout_mode = 1
+anchors_preset = 2
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -140.0
+offset_top = 60.0
+offset_right = -10.0
+offset_bottom = 108.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("9")
 
 [node name="UIManager" type="Node" parent="UILayer"]
 script = ExtResource("7")

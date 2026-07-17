@@ -8,6 +8,8 @@ extends Node
 # =============================================================================
 
 signal resource_updated(resource_type: String, amount: int, player_id: int)
+signal population_changed(current: int, max_pop: int, player_id: int)
+signal idle_villagers_changed(count: int, player_id: int)
 
 # =============================================================================
 # Constants
@@ -29,6 +31,9 @@ const CARRY_CAPACITY: Dictionary = {
 # =============================================================================
 
 var global_resources: Dictionary = {}
+
+var player_population: Dictionary = {}
+var player_max_population: Dictionary = {}
 
 var gather_rates: Dictionary = {}
 var gather_rate_modifiers: Dictionary = {}
@@ -82,6 +87,9 @@ func _initialize_player(player_id: int) -> void:
 
 	global_resources[player_id] = player_data.get("resources", {}).duplicate()
 
+	player_population[player_id] = 0
+	player_max_population[player_id] = 10
+
 	gather_rates[player_id] = {}
 	gather_rate_modifiers[player_id] = {}
 	for resource_type: String in BASE_GATHER_RATES:
@@ -93,6 +101,8 @@ func _initialize_player(player_id: int) -> void:
 	for resource_type: String in global_resources[player_id]:
 		var amount: int = global_resources[player_id][resource_type]
 		resource_updated.emit(resource_type, amount, player_id)
+
+	_population_changed.emit(0, 10, player_id)
 
 # =============================================================================
 # Resource Collection
@@ -231,8 +241,76 @@ func get_all_resources(player_id: int) -> Dictionary:
 	return global_resources.get(player_id, {}).duplicate()
 
 
-func get_buffered_amount(resource_type: String, player_id: int) -> int:
-	return _get_buffered(player_id, resource_type)
+# =============================================================================
+# Population API
+# =============================================================================
+
+func get_population(player_id: int) -> int:
+	return player_population.get(player_id, 0)
+
+
+func get_max_population(player_id: int) -> int:
+	return player_max_population.get(player_id, 10)
+
+
+func add_population(amount: int, player_id: int) -> void:
+	if not player_population.has(player_id):
+		player_population[player_id] = 0
+		player_max_population[player_id] = 10
+	player_population[player_id] += amount
+	_population_changed.emit(player_population[player_id], player_max_population[player_id], player_id)
+
+
+func remove_population(amount: int, player_id: int) -> void:
+	if not player_population.has(player_id):
+		return
+	player_population[player_id] = max(0, player_population[player_id] - amount)
+	_population_changed.emit(player_population[player_id], player_max_population[player_id], player_id)
+
+
+func set_max_population(max_pop: int, player_id: int) -> void:
+	if not player_max_population.has(player_id):
+		player_max_population[player_id] = 10
+	player_max_population[player_id] = max_pop
+	_population_changed.emit(player_population.get(player_id, 0), player_max_population[player_id], player_id)
+
+
+func can_afford_population(amount: int, player_id: int) -> bool:
+	var current = get_population(player_id)
+	var max_pop = get_max_population(player_id)
+	return current + amount <= max_pop
+
+
+# =============================================================================
+# Income Estimation
+# =============================================================================
+
+func get_resource_income(resource_type: String, player_id: int) -> int:
+	var rate: float = get_gather_rate(resource_type, player_id)
+	return int(rate)
+
+
+func get_gather_rate(resource_type: String, player_id: int) -> float:
+	if not gather_rates.has(player_id) or not gather_rates[player_id].has(resource_type):
+		return BASE_GATHER_RATES.get(resource_type, 0.39)
+	return gather_rates[player_id][resource_type] * gather_rate_modifiers[player_id].get(resource_type, 1.0)
+
+
+# =============================================================================
+# Idle Villager Tracking
+# =============================================================================
+
+func get_idle_villager_count(player_id: int) -> int:
+	var unit_manager = UnitManager.get_singleton()
+	if unit_manager == null or not unit_manager.has_method("get_idle_villager_count"):
+		return 0
+	return unit_manager.get_idle_villager_count(player_id)
+
+
+func _emit_idle_villagers_changed(player_id: int) -> void:
+	var count = get_idle_villager_count(player_id)
+	idle_villagers_changed.emit(count, player_id)
+
 
 # =============================================================================
 # Helpers
