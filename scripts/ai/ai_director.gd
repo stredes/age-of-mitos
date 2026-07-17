@@ -18,7 +18,6 @@ var ai_builder: Node = null
 func initialize(player_id: int, diff: int) -> void:
 	ai_player_id = player_id
 	difficulty = clampi(diff, 1, 3)
-	update_timer = randf_range(0.0, update_interval)
 
 	match difficulty:
 		1:
@@ -30,6 +29,8 @@ func initialize(player_id: int, diff: int) -> void:
 		3:
 			update_interval = 2.0
 			personality = "aggressive"
+
+	update_timer = randf_range(0.0, update_interval)
 
 	ai_economy = Node.new()
 	ai_economy.set_script(load("res://scripts/ai/ai_economy.gd"))
@@ -177,8 +178,8 @@ func find_weakest_point() -> Vector2:
 	var weakest: Vector2 = base_pos
 	var min_threat: int = 999999
 
-	for angle: float in range(0, 360, 45):
-		var check_pos: Vector2 = base_pos + Vector2.from_angle(deg_to_rad(angle)) * 200.0
+	for angle_i: int in range(0, 360, 45):
+		var check_pos: Vector2 = base_pos + Vector2.from_angle(deg_to_rad(float(angle_i))) * 200.0
 		var threat: int = 0
 		var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
 		for unit: Node in all_units:
@@ -241,7 +242,12 @@ func find_expansion_spot() -> Vector2:
 		var dist: float = randf_range(250.0, 450.0)
 		var check_pos: Vector2 = base_pos + Vector2.from_angle(angle) * dist
 
-		var threat: int = get_tree().current_scene.get_node_or_null("CombatManager").get_threat_at_position(check_pos, 200.0, ai_player_id) if get_tree().current_scene.get_node_or_null("CombatManager") != null else 0
+		var threat: int = 0
+		var scene: Node = get_tree().current_scene
+		if scene != null:
+			var combat_manager: Node = scene.get_node_or_null("CombatManager")
+			if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
+				threat = combat_manager.get_threat_at_position(check_pos, 200.0, ai_player_id)
 		var enemy_nearby: bool = false
 		var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
 		for unit: Node in all_units:

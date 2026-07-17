@@ -63,9 +63,11 @@ func find_expansion_spot() -> Vector2:
 		var check_pos: Vector2 = base_pos + Vector2.from_angle(angle) * dist
 
 		var threat: int = 0
-		var combat_manager: Node = get_tree().current_scene.get_node_or_null("CombatManager")
-		if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
-			threat = combat_manager.get_threat_at_position(check_pos, 200.0, ai_player_id)
+		var scene: Node = get_tree().current_scene
+		if scene != null:
+			var combat_manager: Node = scene.get_node_or_null("CombatManager")
+			if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
+				threat = combat_manager.get_threat_at_position(check_pos, 200.0, ai_player_id)
 
 		var enemy_nearby: bool = false
 		var all_units: Array[Node] = get_tree().get_nodes_in_group("units")
@@ -128,9 +130,11 @@ func build_defenses() -> void:
 	var tower_count: int = _get_building_count("tower")
 	var threat_level: int = 0
 	var base_pos: Vector2 = _get_own_base_position()
-	var combat_manager: Node = get_tree().current_scene.get_node_or_null("CombatManager")
-	if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
-		threat_level = combat_manager.get_threat_at_position(base_pos, 500.0, ai_player_id)
+	var scene: Node = get_tree().current_scene
+	if scene != null:
+		var combat_manager: Node = scene.get_node_or_null("CombatManager")
+		if combat_manager != null and combat_manager.has_method("get_threat_at_position"):
+			threat_level = combat_manager.get_threat_at_position(base_pos, 500.0, ai_player_id)
 
 	if threat_level > 30 and tower_count < 3:
 		var angle: float = randf() * TAU
@@ -168,8 +172,6 @@ func repair_damaged_buildings() -> void:
 
 func get_building_priority() -> Array:
 	var priority: Array = []
-	var food_income: int = _estimate_resource_income("food")
-	var wood_income: int = _estimate_resource_income("wood")
 
 	if _get_building_count("barracks") == 0:
 		priority.append("barracks")

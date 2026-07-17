@@ -73,7 +73,8 @@ func should_attack() -> bool:
 
 
 func plan_attack() -> void:
-	var combat_manager: Node = get_tree().current_scene.get_node_or_null("CombatManager")
+	var scene: Node = get_tree().current_scene
+	var combat_manager: Node = scene.get_node_or_null("CombatManager") if scene != null else null
 	var target_pos: Vector2 = Vector2.ZERO
 
 	if combat_manager != null:
@@ -93,8 +94,6 @@ func plan_attack() -> void:
 	_last_attack_time = GameManager.game_time
 
 	for unit: Node in army:
-		if unit.has_method("set("):
-			unit.set("attack_target_position", target_pos)
 		if unit.has_method("set_target"):
 			unit.set("attack_target_position", target_pos)
 
@@ -107,7 +106,10 @@ func defend_base() -> void:
 	if base_pos == Vector2.ZERO:
 		return
 
-	var combat_manager: Node = get_tree().current_scene.get_node_or_null("CombatManager")
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return
+	var combat_manager: Node = scene.get_node_or_null("CombatManager")
 	if combat_manager == null:
 		return
 
@@ -117,8 +119,6 @@ func defend_base() -> void:
 
 	var army: Array[Node] = _get_combat_units()
 	for unit: Node in army:
-		if unit.has_method("set("):
-			unit.set("attack_target_position", base_pos)
 		if unit.has_method("set_target"):
 			unit.set("attack_target_position", base_pos)
 
