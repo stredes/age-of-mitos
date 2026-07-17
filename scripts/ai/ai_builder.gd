@@ -3,12 +3,22 @@ extends Node
 signal build_planned(building_type: String, position: Vector2)
 
 var ai_player_id: int = -1
+var personality: String = "balanced"
 var _last_build_time: float = 0.0
 var _build_cooldown: float = 15.0
 
 
-func initialize(player_id: int) -> void:
+func initialize(player_id: int, ai_personality: String = "balanced") -> void:
 	ai_player_id = player_id
+	personality = ai_personality
+
+	match personality:
+		"aggressive":
+			_build_cooldown = 12.0
+		"defensive":
+			_build_cooldown = 18.0
+		_:
+			_build_cooldown = 15.0
 
 
 func manage_buildings(delta: float) -> void:

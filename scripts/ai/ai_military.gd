@@ -1,19 +1,50 @@
 extends Node
 
 signal attack_planned(target_pos: Vector2, army: Array[Node])
+signal formation_changed(formation: String)
 
 var ai_player_id: int = -1
+var personality: String = "balanced"
 var _attack_threshold: int = 80
 var _last_attack_time: float = 0.0
 var _attack_cooldown: float = 30.0
 
+enum Formation { LINE, WEDGE, SCATTER, FLANK }
 
-func initialize(player_id: int) -> void:
+var _current_formation: Formation = Formation.LINE
+var _formation_spread: float = 60.0
+var _rally_point: Vector2 = Vector2.ZERO
+var _last_rally_time: float = 0.0
+const RALLY_UPDATE_INTERVAL: float = 10.0
+
+var _formation_offsets: Dictionary = {
+	Formation.LINE: _get_line_offsets,
+	Formation.WEDGE: _get_wedge_offsets,
+	Formation.SCATTER: _get_scatter_offsets,
+	Formation.FLANK: _get_flank_offsets,
+}
+
+
+func initialize(player_id: int, ai_personality: String = "balanced") -> void:
 	ai_player_id = player_id
+	personality = ai_personality
+
+	match personality:
+		"aggressive":
+			_attack_threshold = 60
+			_attack_cooldown = 20.0
+		"defensive":
+			_attack_threshold = 100
+			_attack_cooldown = 45.0
+		_:
+			_attack_threshold = 80
+			_attack_cooldown = 30.0
 
 
 func manage_military(delta: float) -> void:
 	train_army()
+	_update_rally_point(delta)
+
 	var game_time: float = GameManager.game_time
 	if game_time - _last_attack_time < _attack_cooldown:
 		return
@@ -93,12 +124,128 @@ func plan_attack() -> void:
 
 	_last_attack_time = GameManager.game_time
 
-	for unit: Node in army:
-		if unit.has_method("set_target"):
-			unit.set("attack_target_position", target_pos)
+	_select_formation(army)
+	_send_army_in_formation(army, target_pos)
 
 	EventBus.ai_attack_planned.emit(ai_player_id, _get_target_player(), get_army_strength(), target_pos)
 	attack_planned.emit(target_pos, army)
+
+
+func _select_formation(army: Array[Node]) -> void:
+	var composition: Dictionary = get_army_composition()
+	var melee_count: int = composition.get("swordsman", 0) + composition.get("spearman", 0)
+	var ranged_count: int = composition.get("archer", 0)
+	var cav_count: int = composition.get("cavalry", 0)
+	var total: int = army.size()
+
+	if total <= 2:
+		_current_formation = Formation.LINE
+	elif cav_count > total * 0.4:
+		_current_formation = Formation.WEDGE
+	elif ranged_count > total * 0.5:
+		_current_formation = Formation.SCATTER
+	elif melee_count > total * 0.6 and total >= 4:
+		_current_formation = Formation.FLANK
+	else:
+		_current_formation = Formation.LINE
+
+	_formation_spread = _get_formation_spread()
+
+	formation_changed.emit(_get_formation_name())
+
+
+func _get_formation_spread() -> float:
+	match _current_formation:
+		Formation.LINE:
+			return 60.0
+		Formation.WEDGE:
+			return 50.0
+		Formation.SCATTER:
+			return 120.0
+		Formation.FLANK:
+			return 90.0
+		_:
+			return 60.0
+
+
+func _get_formation_name() -> String:
+	match _current_formation:
+		Formation.LINE:
+			return "line"
+		Formation.WEDGE:
+			return "wedge"
+		Formation.SCATTER:
+			return "scatter"
+		Formation.FLANK:
+			return "flank"
+		_:
+			return "line"
+
+
+func _send_army_in_formation(army: Array[Node], target_pos: Vector2) -> void:
+	var offsets: Array[Vector2] = _calculate_offsets(army.size())
+
+	for i in range(army.size()):
+		var unit: Node = army[i]
+		var offset: Vector2 = offsets[i] if i < offsets.size() else Vector2.ZERO
+		var formation_target: Vector2 = target_pos + offset
+
+		unit.set("attack_target_position", formation_target)
+
+		if unit.has_method("set_target"):
+			unit.set("attack_target_position", formation_target)
+
+
+func _calculate_offsets(count: int) -> Array[Vector2]:
+	var offsets: Array[Vector2] = []
+	var half: float = float(count) / 2.0
+
+	match _current_formation:
+		Formation.LINE:
+			for i in range(count):
+				var x: float = (float(i) - half) * _formation_spread
+				offsets.append(Vector2(x, 0.0))
+		Formation.WEDGE:
+			for i in range(count):
+				var row: int = i / 2
+				var side: float = -1.0 if i % 2 == 0 else 1.0
+				var x: float = side * float(row) * _formation_spread * 0.5
+				var y: float = float(row) * _formation_spread * 0.8
+				offsets.append(Vector2(x, y))
+		Formation.SCATTER:
+			for i in range(count):
+				var angle: float = randf() * TAU
+				var dist: float = randf_range(_formation_spread * 0.3, _formation_spread)
+				offsets.append(Vector2.from_angle(angle) * dist)
+		Formation.FLANK:
+			var flank_size: int = count / 2
+			for i in range(count):
+				if i < flank_size:
+					var x: float = -_formation_spread * 1.5
+					var y: float = (float(i) - float(flank_size) / 2.0) * _formation_spread * 0.6
+					offsets.append(Vector2(x, y))
+				else:
+					var x: float = _formation_spread * 1.5
+					var y: float = (float(i - flank_size) - float(count - flank_size) / 2.0) * _formation_spread * 0.6
+					offsets.append(Vector2(x, y))
+
+	return offsets
+
+
+func _get_line_offsets() -> Array[Vector2]:
+	return []
+
+
+func _get_wedge_offsets() -> Array[Vector2]:
+	return []
+
+
+func _get_scatter_offsets() -> Array[Vector2]:
+	return []
+
+
+func _get_flank_offsets() -> Array[Vector2]:
+	return []
 
 
 func defend_base() -> void:
@@ -118,9 +265,46 @@ func defend_base() -> void:
 		return
 
 	var army: Array[Node] = _get_combat_units()
-	for unit: Node in army:
-		if unit.has_method("set_target"):
+	if army.size() <= 3:
+		for unit: Node in army:
 			unit.set("attack_target_position", base_pos)
+	else:
+		_select_formation(army)
+		var defense_offsets: Array[Vector2] = _calculate_offsets(army.size())
+		for i in range(army.size()):
+			var unit: Node = army[i]
+			var offset: Vector2 = defense_offsets[i] if i < defense_offsets.size() else Vector2.ZERO
+			unit.set("attack_target_position", base_pos + offset)
+
+
+func _update_rally_point(delta: float) -> void:
+	_last_rally_time += delta
+	if _last_rally_time < RALLY_UPDATE_INTERVAL:
+		return
+	_last_rally_time = 0.0
+
+	var base_pos: Vector2 = _get_own_base_position()
+	if base_pos == Vector2.ZERO:
+		return
+
+	_rally_point = base_pos + Vector2(randf_range(-100, 100), randf_range(-100, 100))
+
+
+func should_retreat() -> bool:
+	var army: Array[Node] = _get_combat_units()
+	if army.is_empty():
+		return true
+
+	var strength: int = get_army_strength()
+	var scene: Node = get_tree().current_scene
+	if scene == null:
+		return false
+	var combat_manager: Node = scene.get_node_or_null("CombatManager")
+	if combat_manager == null:
+		return false
+
+	var enemy_threat: int = combat_manager.get_threat_at_position(_rally_point, 300.0, ai_player_id) if combat_manager.has_method("get_threat_at_position") else 0
+	return enemy_threat > strength * 1.5
 
 
 func get_army_composition() -> Dictionary:
