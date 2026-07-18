@@ -1,6 +1,9 @@
 class_name UnitBase
 extends CharacterBody2D
 
+signal animation_changed(anim_name: String)
+signal state_changed(new_state: String)
+signal resource_carried_changed(resource_type: String, amount: int)
 signal died(unit_id: int)
 signal damaged(amount: int, attacker_id: int)
 signal command_received(command: String, data: Dictionary)
@@ -58,6 +61,14 @@ func _configure_components() -> void:
 	var anim_controller: Node = get_node_or_null("UnitAnimationController")
 	if anim_controller != null and anim_controller.has_method("setup_unit_visuals"):
 		anim_controller.setup_unit_visuals(unit_type, player_id)
+	
+	var state_machine: Node = get_node_or_null("UnitStateMachine")
+	if state_machine != null and state_machine.has_signal("state_changed"):
+		state_machine.state_changed.connect(_on_state_machine_state_changed)
+
+
+func _on_state_machine_state_changed(old_state: String, new_state: String) -> void:
+	state_changed.emit(new_state)
 
 
 func _process(_delta: float) -> void:

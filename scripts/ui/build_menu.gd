@@ -138,6 +138,19 @@ func _create_building_button(building_type: String, player_id: int) -> void:
 	btn_style.corner_radius_bottom_left = 6
 	btn_style.corner_radius_bottom_right = 6
 
+	var disabled_reason: String = ""
+	if not can_afford:
+		var resources: Dictionary = GameManager.get_resources()
+		var missing: Array[String] = []
+		for res_type: String in cost:
+			var have: int = resources.get(res_type, 0)
+			var need: int = cost[res_type]
+			if have < need:
+				missing.append(res_type.capitalize() + " (" + str(have) + "/" + str(need) + ")")
+		disabled_reason = "Need: " + ", ".join(missing)
+	elif not has_prereqs:
+		disabled_reason = "Requires: " + ", ".join(prerequisite_buildings)
+
 	if enabled:
 		btn_style.bg_color = Color(0.15, 0.25, 0.15, 0.9)
 		btn_style.border_color = Color(0.3, 0.6, 0.3, 0.8)
@@ -158,6 +171,8 @@ func _create_building_button(building_type: String, player_id: int) -> void:
 	var btn_hover: StyleBoxFlat = btn_style.duplicate()
 	btn_hover.border_color = Color(0.5, 0.8, 0.5, 1.0) if enabled else Color(0.5, 0.3, 0.3, 0.8)
 	btn.add_theme_stylebox_override("hover", btn_hover)
+
+	btn.tooltip_text = display_name + ("\n[color=#ff6666]" + disabled_reason + "[/color]" if disabled_reason.length() > 0 else "")
 
 	_grid_container.add_child(btn)
 

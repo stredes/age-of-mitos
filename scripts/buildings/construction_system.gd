@@ -1,243 +1,194 @@
-## Handles construction logic for buildings. Tracks which villagers are assigned
-## to each building under construction and advances their progress over time.
-class_name ConstructionSystem
 extends Node
 
-# =============================================================================
-# Signals
-# =============================================================================
+class_name ConstructionSystem
 
-signal construction_complete(building_id: int)
+signal construction_started(building: BuildingBase)
+signal construction_progress(building: BuildingBase, progress: float)
+signal construction_completed(building: BuildingBase)
+signal construction_cancelled(building: BuildingBase, refund_amount: float)
 
-# =============================================================================
-# Constants
-# =============================================================================
+@export var construction_particle_scene: PackedScene = preload("res://scenes/effects/construction_particles.tscn")
+@export var completion_effect_scene: PackedScene = preload("res://scenes/effects/construction_complete.tscn")
 
-const WORK_PER_VILLAGER_PER_SECOND: int = 5
+var buildings_under_construction: Array[BuildingBase] = []
+var particle_pool: Array[CPUParticles2D] = []
+var completion_pool: Array[Node] = []
 
-# =============================================================================
-# Properties
-# =============================================================================
-
-var active_constructions: Dictionary = {}
-
-var _building_manager: Node = null
-
-# =============================================================================
-# Lifecycle
-# =============================================================================
+@onready var grid_manager: GridManager = GridManager.get_instance()
+@onready var event_bus: EventBus = EventBus.get_instance()
+@onready var particle_manager: ParticleEffectsManager = ParticleEffectsManager.get_instance()
 
 func _ready() -> void:
-	_building_manager = _find_building_manager()
-	_connect_event_bus()
+	event_bus.building_placed.connect(_on_building_placed.bind())
+	event_bus.building_cancelled.connect(_on_building_cancelled.bind())
+	_preload_particles(20)
 
+func _preload_particles(count: int) -> void:
+	for i in range(count):
+		if construction_particle_scene:
+			var particles = construction_particle_scene.instantiate()
+			particles.emitting = false
+			particle_pool.append(particles)
+		if completion_effect_scene:
+			var effect = completion_effect_scene.instantiate()
+			effect.visible = false
+			completion_pool.append(effect)
 
-func _process(delta: float) -> void:
-	var ids: Array = active_constructions.keys()
-	for building_id: int in ids:
-		if not active_constructions.has(building_id):
+func _on_building_placed(building: BuildingBase, position: Vector2) -> void:
+	if building.construction_time > 0:
+		_start_construction(building)
+	else:
+		_complete_construction_immediately(building)
+
+func _start_construction(building: BuildingBase) -> void:
+	building.set_construction_state(BuildingBase.CONSTRUCTION_STATE.BUILDING)
+	buildings_under_construction.append(building)
+	construction_started.emit(building)
+	
+	var particles = _get_particles_from_pool()
+	if particles:
+		particles.global_position = building.global_position
+		particles.emitting = true
+		building.construction_particles = particles
+
+func _physics_process(delta: float) -> void:
+	for i in buildings_under_construction.size() - 1 down to 0:
+		var building = buildings_under_construction[i]
+		if not is_instance_valid(building):
+			buildings_under_construction.remove_at(i)
 			continue
-		update_construction(building_id, delta)
+		
+		_advance_construction(building, delta)
 
-# =============================================================================
-# Setup
-# =============================================================================
+func _advance_construction(building: BuildingBase, delta: float) -> void:
+	building.construction_progress += delta / building.construction_time
+	building.construction_progress = clamp(building.construction_progress, 0.0, 1.0)
+	
+	construction_progress.emit(building, building.construction_progress)
+	
+	if building.construction_progress >= 1.0:
+		_complete_construction(building)
+		buildings_under_construction.remove_at(i)
 
-func _find_building_manager() -> Node:
-	var node: Node = get_node_or_null("/root/GameWorld/BuildingManager")
-	if node:
-		return node
-	return get_node_or_null("/root/GameWorld/World/BuildingManager")
+func _complete_construction(building: BuildingBase) -> void:
+	building.set_construction_state(BuildingBase.CONSTRUCTION_STATE.COMPLETE)
+	building.construction_progress = 1.0
+	
+	if is_instance_valid(building.construction_particles):
+		building.construction_particles.emitting = false
+		_return_particles_to_pool(building.construction_particles)
+		building.construction_particles = null
+	
+	_play_completion_effect(building)
+	
+	if building.has_rally_point:
+		building.spawn_rally_point_unit()
+	
+	construction_completed.emit(building)
+	event_bus.building_completed.emit(building)
 
+func _complete_construction_immediately(building: BuildingBase) -> void:
+	building.set_construction_state(BuildingBase.CONSTRUCTION_STATE.COMPLETE)
+	building.construction_progress = 1.0
+	construction_completed.emit(building)
+	event_bus.building_completed.emit(building)
 
-func _connect_event_bus() -> void:
-	if not EventBus.villager_assigned.is_connected(_on_villager_assigned):
-		EventBus.villager_assigned.connect(_on_villager_assigned)
-	if not EventBus.villager_unassigned.is_connected(_on_villager_unassigned):
-		EventBus.villager_unassigned.connect(_on_villager_unassigned)
+func _play_completion_effect(building: BuildingBase) -> void:
+	var effect = _get_completion_effect_from_pool()
+	if effect:
+		effect.global_position = building.global_position
+		effect.visible = true
+		if effect.has_method("play"):
+			effect.play()
+		await get_tree().create_timer(2.0).timeout
+		effect.visible = false
+		_return_completion_effect_to_pool(effect)
+	
+	if CameraController.get_instance():
+		CameraController.get_instance().shake(0.3, 0.15)
+	
+	AudioManager.play_sfx("res://assets/audio/sfx/building_complete.wav", building.global_position)
 
-# =============================================================================
-# Builder Assignment
-# =============================================================================
+func _on_building_cancelled(building: BuildingBase, refund: bool) -> void:
+	if building in buildings_under_construction:
+		buildings_under_construction.erase(building)
+		
+		if is_instance_valid(building.construction_particles):
+			building.construction_particles.emitting = false
+			_return_particles_to_pool(building.construction_particles)
+			building.construction_particles = null
+		
+		var refund_amount: float = 0.75 if refund else 0.0
+		construction_cancelled.emit(building, refund_amount)
+		event_bus.building_cancelled.emit(building, refund_amount)
 
-func assign_builder(building_id: int, villager_id: int) -> void:
-	if not active_constructions.has(building_id):
-		var building: Node2D = _get_building(building_id)
-		if building == null:
-			return
-		if building.has_method("get") and building.get("is_constructed") == true:
-			return
+func _get_particles_from_pool() -> CPUParticles2D:
+	if particle_pool.is_empty():
+		if construction_particle_scene:
+			var particles = construction_particle_scene.instantiate()
+			particles.emitting = false
+			return particles
+		return null
+	return particle_pool.pop_back()
 
-		var total: int = 100
-		if building.has_method("get") and building.get("construction_total") != null:
-			total = building.get("construction_total")
+func _return_particles_to_pool(particles: CPUParticles2D) -> void:
+	if particle_pool.size() < 30:
+		particle_pool.append(particles)
+	else:
+		particles.queue_free()
 
-		active_constructions[building_id] = {
-			"builder_ids": [],
-			"progress": 0,
-			"total": total,
-		}
+func _get_completion_effect_from_pool() -> Node:
+	if completion_pool.is_empty():
+		if completion_effect_scene:
+			return completion_effect_scene.instantiate()
+		return null
+	return completion_pool.pop_back()
 
-		if building.has_method("start_construction"):
-			building.start_construction()
+func _return_completion_effect_to_pool(effect: Node) -> void:
+	if completion_pool.size() < 10:
+		completion_pool.append(effect)
+	else:
+		effect.queue_free()
 
-	var entry: Dictionary = active_constructions[building_id]
-	var builders: Array = entry["builder_ids"]
-	if villager_id not in builders:
-		builders.append(villager_id)
-		entry["builder_ids"] = builders
+func cancel_construction(building: BuildingBase, refund: bool = true) -> void:
+	if building in buildings_under_construction:
+		var building_data: Dictionary = DataManager.get_building_data(building.building_type)
+		var cost: Dictionary = building_data.get("cost", {})
+		var refund_amount: float = 0.75 if refund else 0.0
+		
+		if refund > 0.0 and cost.size() > 0:
+			var refunded_resources: Dictionary = {}
+			for resource_type: String in cost:
+				var base_cost: int = cost[resource_type]
+				var refunded_amount: int = maxi(ceili(float(base_cost) * refund_amount), 1)
+				refunded_resources[resource_type] = refunded_amount
+			
+			GameManager.give_resources(refunded_resources, building.player_id)
+		
+		_on_building_cancelled(building, refund)
+		building.queue_free()
 
+func get_construction_progress(building: BuildingBase) -> float:
+	return building.construction_progress
 
-func unassign_builder(building_id: int, villager_id: int) -> void:
-	if not active_constructions.has(building_id):
-		return
+func get_buildings_under_construction() -> Array[BuildingBase]:
+	return buildings_under_construction.duplicate()
 
-	var entry: Dictionary = active_constructions[building_id]
-	var builders: Array = entry["builder_ids"]
-	builders.erase(villager_id)
-	entry["builder_ids"] = builders
+func set_rally_point(building: BuildingBase, position: Vector2) -> void:
+	building.set_rally_point(position)
 
-	if builders.is_empty():
-		# Pause construction but don't remove it — villagers can resume.
-		pass
+func get_rally_point(building: BuildingBase) -> Vector2:
+	return building.get_rally_point()
 
-# =============================================================================
-# Construction Update
-# =============================================================================
+func has_rally_point(building: BuildingBase) -> bool:
+	return building.has_rally_point()
 
-func update_construction(building_id: int, delta: float) -> void:
-	if not active_constructions.has(building_id):
-		return
+func clear_rally_point(building: BuildingBase) -> void:
+	building.clear_rally_point()
 
-	var entry: Dictionary = active_constructions[building_id]
-	var builders: Array = entry["builder_ids"]
-	var builder_count: int = builders.size()
-
-	if builder_count == 0:
-		return
-
-	var building: Node2D = _get_building(building_id)
-	if building == null:
-		active_constructions.erase(building_id)
-		return
-
-	if building.has_method("get") and building.get("is_constructed") == true:
-		active_constructions.erase(building_id)
-		return
-
-	var work_per_second: int = WORK_PER_VILLAGER_PER_SECOND * builder_count
-	var total_work: int = entry["total"]
-
-	# Clean up invalid builders.
-	var valid_builders: Array = []
-	for vid: int in builders:
-		if _is_valid_villager(vid):
-			valid_builders.append(vid)
-	entry["builder_ids"] = valid_builders
-	builder_count = valid_builders.size()
-
-	if builder_count == 0:
-		return
-
-	var actual_work: int = work_per_second
-	if building.has_method("advance_construction"):
-		building.advance_construction(actual_work)
-
-	var current_hp: int = 0
-	if building.has_method("get"):
-		current_hp = building.get("current_hp") if building.get("current_hp") != null else 0
-
-	entry["progress"] = current_hp
-
-	EventBus.construction_progress.emit(building_id, current_hp, total_work)
-
-	if current_hp >= total_work:
-		_complete_construction(building_id)
-
-# =============================================================================
-# Completion
-# =============================================================================
-
-func _complete_construction(building_id: int) -> void:
-	if not active_constructions.has(building_id):
-		return
-
-	var entry: Dictionary = active_constructions[building_id]
-	var builders: Array = entry["builder_ids"]
-
-	var building: Node2D = _get_building(building_id)
-	if building and building.has_method("complete_construction"):
-		building.complete_construction()
-
-	for vid: int in builders:
-		EventBus.villager_unassigned.emit(vid, building_id)
-
-	active_constructions.erase(building_id)
-	construction_complete.emit(building_id)
-
-# =============================================================================
-# Progress Query
-# =============================================================================
-
-func get_construction_progress(building_id: int) -> float:
-	if not active_constructions.has(building_id):
-		return 0.0
-	var entry: Dictionary = active_constructions[building_id]
-	var total: int = entry["total"]
-	if total <= 0:
-		return 0.0
-	return clampf(float(entry["progress"]) / float(total), 0.0, 1.0)
-
-# =============================================================================
-# Manual Completion (for debugging / cheats)
-# =============================================================================
-
-func complete_construction(building_id: int) -> void:
-	_complete_construction(building_id)
-
-# =============================================================================
-# Helpers
-# =============================================================================
-
-func _get_building(building_id: int) -> Node2D:
-	if _building_manager and _building_manager.has_method("get_building"):
-		return _building_manager.get_building(building_id)
-	return null
-
-
-func _is_valid_villager(villager_id: int) -> bool:
-	var villagers: Array[Node] = get_tree().get_nodes_in_group("villagers")
-	for v: Node in villagers:
-		if v.has_method("get") and v.get("unit_id") != null and v.get("unit_id") == villager_id:
-			if v.has_method("get") and v.get("is_dead") != true:
-				return true
-	return false
-
-# =============================================================================
-# Event Bus Handlers
-# =============================================================================
-
-func _on_villager_assigned(villager_id: int, target_id: int, task: String) -> void:
-	if task == "build":
-		assign_builder(target_id, villager_id)
-
-
-func _on_villager_unassigned(villager_id: int, previous_target_id: int) -> void:
-	unassign_builder(previous_target_id, villager_id)
-
-# =============================================================================
-# Query
-# =============================================================================
-
-func is_under_construction(building_id: int) -> bool:
-	return active_constructions.has(building_id)
-
-
-func get_builder_count(building_id: int) -> int:
-	if not active_constructions.has(building_id):
-		return 0
-	return active_constructions[building_id]["builder_ids"].size()
-
-
-func get_active_building_ids() -> Array:
-	return active_constructions.keys()
+func _on_building_destroyed(building: BuildingBase) -> void:
+	if building in buildings_under_construction:
+		buildings_under_construction.erase(building)
+		if is_instance_valid(building.construction_particles):
+			building.construction_particles.emitting = false
+			_return_particles_to_pool(building.construction_particles)

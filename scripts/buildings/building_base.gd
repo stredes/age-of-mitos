@@ -41,6 +41,9 @@ var is_selected: bool = false
 var construction_build_time: float = 15.0
 var construction_workers: int = 1
 
+var rally_point: Vector2 = Vector2.ZERO
+var has_rally_point: bool = false
+
 var _sprite: AnimatedSprite2D = null
 var _collision: CollisionShape2D = null
 var _anim_controller: Node = null
@@ -385,12 +388,49 @@ func update_production(delta: float) -> void:
 	production_timer -= delta
 	if production_timer <= 0.0:
 		var completed_type: String = production_queue.pop_front()
-		EventBus.resource_drop_off.emit(-1, building_id, "unit_spawn", 0)
+		_spawn_produced_unit(completed_type)
 		production_completed.emit(building_id, completed_type)
 		_begin_next_production()
 
 	if _progress_bar:
 		_update_progress_bar_visual()
+
+
+func _spawn_produced_unit(unit_type: String) -> void:
+	var spawn_pos: Vector2 = global_position
+	if has_rally_point:
+		spawn_pos = rally_point
+	else:
+		spawn_pos += Vector2(randf_range(-30.0, 30.0), randf_range(-30.0, 30.0))
+	
+	var unit_scene: PackedScene = preload("res://scenes/units/unit.tscn")
+	var unit: UnitBase = unit_scene.instantiate()
+	unit.initialize(unit_type, player_id)
+	unit.global_position = spawn_pos
+	get_tree().current_scene.add_child(unit)
+	
+	if has_rally_point and unit.has_method("get_node") and unit.has_node("MovementComponent"):
+		var movement: MovementComponent = unit.get_node("MovementComponent")
+		if movement:
+			movement.move_to(rally_point)
+
+
+func set_rally_point(position: Vector2) -> void:
+	rally_point = position
+	has_rally_point = true
+
+
+func get_rally_point() -> Vector2:
+	return rally_point
+
+
+func has_rally_point() -> bool:
+	return has_rally_point
+
+
+func clear_rally_point() -> void:
+	has_rally_point = false
+	rally_point = Vector2.ZERO
 
 
 func get_production_progress() -> float:
@@ -544,6 +584,12 @@ func _draw() -> void:
 		var alpha: float = clampf(_completion_glow_timer / 1.1, 0.0, 1.0)
 		draw_circle(Vector2.ZERO, glow_radius, Color(1.0, 0.85, 0.3, 0.16 * alpha))
 
+	if has_rally_point and is_selected:
+		var local_rally = to_local(rally_point)
+		draw_line(Vector2.ZERO, local_rally, Color(0.3, 1.0, 0.4, 0.6), 2.0)
+		draw_circle(local_rally, 8.0, Color(0.3, 1.0, 0.4, 0.4))
+		draw_circle(local_rally, 5.0, Color(0.3, 1.0, 0.4, 0.8))
+
 # =============================================================================
 # Update Loop
 # =============================================================================
@@ -576,4 +622,6 @@ func get_data() -> Dictionary:
 		"attack_speed": attack_speed,
 		"garrison_count": garrison_count,
 		"garrison_capacity": garrison_capacity,
+		"rally_point": {"x": rally_point.x, "y": rally_point.y},
+		"has_rally_point": has_rally_point,
 	}

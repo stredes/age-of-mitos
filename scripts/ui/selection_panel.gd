@@ -1,5 +1,7 @@
 extends Control
 
+const ProceduralSpriteFactory = preload("res://scripts/animation/procedural_sprite_factory.gd")
+
 var _is_showing: bool = false
 var _main_vbox: VBoxContainer = null
 var _portrait_area: PanelContainer = null
@@ -141,6 +143,8 @@ func show_unit(unit_data: Dictionary, unit_node: Node2D) -> void:
 
 	_state_label.text = "Idle"
 
+	_add_procedural_portrait(unit_data.get("name", ""))
+
 	var hp: int = 0
 	var max_hp: int = unit_data.get("hp", 100)
 	if unit_node and unit_node.has_method("get"):
@@ -163,7 +167,7 @@ func show_unit(unit_data: Dictionary, unit_node: Node2D) -> void:
 	_add_stat_label("Speed: %d" % speed)
 	_add_stat_label("Range: %.1f" % range_val)
 
-	_add_unit_commands(unit_data)
+	_add_unit_commands(unit_data, unit_node)
 
 
 func show_units(unit_nodes: Array) -> void:
@@ -356,7 +360,7 @@ func update_hp_bar(current: int, max_val: int) -> void:
 		_hp_label.text = "%d/%d" % [current, max_val]
 
 
-func add_command_button(label: String, icon_text: String, callback: Callable) -> void:
+func add_command_button(label: String, icon_text: String, callback: Callable, disabled_reason: String = "") -> void:
 	if _commands_container == null:
 		return
 	_commands_container.visible = true
@@ -367,12 +371,20 @@ func add_command_button(label: String, icon_text: String, callback: Callable) ->
 	var hotkey: String = _get_command_hotkey(label)
 	var label_text: String = label + (" [" + hotkey + "]" if not hotkey.is_empty() else "")
 	btn.text = icon_text + "\n" + label_text if icon_text.length() > 0 else label_text
-	btn.tooltip_text = _get_command_tooltip(label, hotkey)
+	var tooltip: String = _get_command_tooltip(label, hotkey)
+	if disabled_reason.length() > 0:
+		tooltip += "\n[color=#ff6666]Cannot: " + disabled_reason + "[/color]"
+	btn.tooltip_text = tooltip
 	btn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	btn.disabled = disabled_reason.length() > 0
 
 	var btn_style: StyleBoxFlat = StyleBoxFlat.new()
-	btn_style.bg_color = Color(0.15, 0.2, 0.3, 0.9)
-	btn_style.border_color = Color(0.3, 0.5, 0.7, 0.7)
+	if disabled_reason.length() > 0:
+		btn_style.bg_color = Color(0.2, 0.15, 0.15, 0.9)
+		btn_style.border_color = Color(0.4, 0.25, 0.25, 0.7)
+	else:
+		btn_style.bg_color = Color(0.15, 0.2, 0.3, 0.9)
+		btn_style.border_color = Color(0.3, 0.5, 0.7, 0.7)
 	btn_style.border_width_bottom = 1
 	btn_style.border_width_top = 1
 	btn_style.border_width_left = 1
@@ -388,8 +400,12 @@ func add_command_button(label: String, icon_text: String, callback: Callable) ->
 	btn.add_theme_stylebox_override("normal", btn_style)
 
 	var btn_hover: StyleBoxFlat = btn_style.duplicate()
-	btn_hover.bg_color = Color(0.2, 0.3, 0.45, 1.0)
-	btn_hover.border_color = Color(0.4, 0.6, 0.9, 1.0)
+	if disabled_reason.length() > 0:
+		btn_hover.bg_color = Color(0.25, 0.18, 0.18, 1.0)
+		btn_hover.border_color = Color(0.5, 0.3, 0.3, 0.8)
+	else:
+		btn_hover.bg_color = Color(0.2, 0.3, 0.45, 1.0)
+		btn_hover.border_color = Color(0.4, 0.6, 0.9, 1.0)
 	btn.add_theme_stylebox_override("hover", btn_hover)
 
 	btn.add_theme_font_size_override("font_size", 11)
@@ -454,7 +470,7 @@ func clear_commands() -> void:
 	_commands_container.visible = false
 
 
-func _add_unit_commands(unit_data: Dictionary) -> void:
+func _add_unit_commands(unit_data: Dictionary, unit_node: Node2D = null) -> void:
 	var unit_type: String = unit_data.get("name", "")
 	var states: Array = unit_data.get("states", [])
 
@@ -464,11 +480,21 @@ func _add_unit_commands(unit_data: Dictionary) -> void:
 		add_command_button("Move", "👟", func() -> void: EventBus.button_pressed.emit("move_command", GameManager.local_player_id))
 	add_command_button("Stop", "🛑", func() -> void: EventBus.button_pressed.emit("stop_command", GameManager.local_player_id))
 
+	# Formation button
+	add_command_button("Formation", "🔀", func() -> void: EventBus.button_pressed.emit("cycle_formation", GameManager.local_player_id))
+
 	if unit_data.get("gather_rate", null) != null:
-		add_command_button("Wood", "🪵", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_wood"))
-		add_command_button("Food", "🍖", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_food"))
-		add_command_button("Stone", "🪨", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_stone"))
-		add_command_button("Gold", "🪙", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_gold"))
+		var resources: Dictionary = GameManager.get_resources()
+		var villager_cost: Dictionary = unit_data.get("cost", {})
+		var can_wood: bool = GameManager.can_afford(villager_cost, GameManager.local_player_id)
+		var can_food: bool = can_wood
+		var can_stone: bool = can_wood
+		var can_gold: bool = can_wood
+		
+		add_command_button("Wood", "🪵", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_wood"), "" if can_wood else "Not enough resources")
+		add_command_button("Food", "🍖", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_food"), "" if can_food else "Not enough resources")
+		add_command_button("Stone", "🪨", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_stone"), "" if can_stone else "Not enough resources")
+		add_command_button("Gold", "🪙", func() -> void: EventBus.villager_assigned.emit(-1, -1, "gather_gold"), "" if can_gold else "Not enough resources")
 		add_command_button("Build", "🔨", func() -> void: EventBus.button_pressed.emit("build_menu", GameManager.local_player_id))
 
 
@@ -483,8 +509,11 @@ func _add_building_commands(building_data: Dictionary, building_node: Node2D) ->
 	for unit_type: String in produces:
 		var unit_data: Dictionary = DataManager.get_unit_data(unit_type)
 		var unit_name: String = unit_data.get("display_name", unit_type.capitalize())
-		var cost_text: String = _format_cost_short(unit_data.get("cost", {}))
-		add_command_button(unit_name + cost_text, "➕", func() -> void: _train_unit(building_node, unit_type))
+		var cost: Dictionary = unit_data.get("cost", {})
+		var cost_text: String = _format_cost_short(cost)
+		var can_afford: bool = GameManager.can_afford(cost, GameManager.local_player_id)
+		var disabled_reason: String = "" if can_afford else "Not enough resources"
+		add_command_button(unit_name + cost_text, "➕", func() -> void: _train_unit(building_node, unit_type), disabled_reason)
 
 
 func _train_unit(building_node: Node, unit_type: String) -> void:
@@ -530,6 +559,45 @@ func _format_cost_short(cost: Dictionary) -> String:
 		var icon: String = _resource_icons.get(res_type, "?")
 		parts.append(icon + str(cost[res_type]))
 	return " " + " ".join(parts)
+
+
+func _add_procedural_portrait(unit_type: String) -> void:
+	if not _portrait_area:
+		_portrait_area = PanelContainer.new()
+		_portrait_area.name = "PortraitArea"
+		_portrait_area.custom_minimum_size = Vector2(64, 64)
+		_portrait_area.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		var panel_style: StyleBoxFlat = StyleBoxFlat.new()
+		panel_style.bg_color = Color(0.08, 0.08, 0.12, 0.9)
+		panel_style.border_color = Color(0.3, 0.4, 0.5, 0.6)
+		panel_style.border_width_bottom = 1
+		panel_style.border_width_top = 1
+		panel_style.border_width_left = 1
+		panel_style.border_width_right = 1
+		panel_style.corner_radius_top_left = 4
+		panel_style.corner_radius_top_right = 4
+		panel_style.corner_radius_bottom_left = 4
+		panel_style.corner_radius_bottom_right = 4
+		_portrait_area.add_theme_stylebox_override("panel", panel_style)
+		_main_vbox.add_child_at_index(_portrait_area, 1)
+
+	# Clear existing portrait
+	for child: Node in _portrait_area.get_children():
+		child.queue_free()
+
+	if unit_type.is_empty():
+		return
+
+	var texture: Texture2D = ProceduralSpriteFactory.get_unit_preview(unit_type, GameManager.local_player_id)
+	if texture:
+		var tex_rect: TextureRect = TextureRect.new()
+		tex_rect.texture = texture
+		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tex_rect.custom_minimum_size = Vector2(48, 48)
+		tex_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		tex_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_portrait_area.add_child(tex_rect)
 
 
 func _on_unit_died(unit_id: int, _killer_id: int, player_id: int) -> void:

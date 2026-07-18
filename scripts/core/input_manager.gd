@@ -281,25 +281,38 @@ func _handle_right_click(world_pos: Vector2) -> void:
 
 	if selected_unit_ids.size() > 0:
 		var target_resource: Node2D = _find_resource_at_position(world_pos)
-		var formation_targets: Dictionary = _build_formation_targets(world_pos, selected_unit_ids.size())
-		var unit_index: int = 0
-		for unit_id: int in selected_unit_ids:
+		
+		var formation_manager: Node = get_node_or_null("/root/GameWorld/FormationManager")
+		var units: Array[Node2D] = []
+		for unit_id in selected_unit_ids:
 			var unit: Node2D = _find_unit_by_id(unit_id)
-			if unit == null:
-				continue
-			if target_resource != null:
+			if unit:
+				units.append(unit)
+		
+		if target_resource != null:
+			for unit: Node2D in units:
 				unit.set("pending_target_resource", target_resource)
 				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 				if state_machine != null and state_machine.has_method("change_state"):
 					state_machine.change_state("HarvestState")
+		elif units.size() > 0:
+			if formation_manager and formation_manager.has_method("apply_formation_to_units"):
+				var center_pos: Vector2 = Vector2.ZERO
+				for u in units:
+					center_pos += u.global_position
+				center_pos /= units.size()
+				
+				formation_manager.apply_formation_to_units(units, world_pos, center_pos)
 			else:
-				var move_target: Vector2 = formation_targets.get(unit_index, world_pos)
-				unit.set("pending_move_position", move_target)
-				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
-				if state_machine != null and state_machine.has_method("change_state"):
-					state_machine.change_state("MoveState")
-				EventBus.unit_moved.emit(unit_id, move_target)
-			unit_index += 1
+				var formation_targets: Dictionary = _build_formation_targets(world_pos, units.size())
+				for i in range(units.size()):
+					var move_target: Vector2 = formation_targets.get(i, world_pos)
+					var unit: Node2D = units[i]
+					unit.set("pending_move_position", move_target)
+					var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+					if state_machine != null and state_machine.has_method("change_state"):
+						state_machine.change_state("MoveState")
+					EventBus.unit_moved.emit(selected_unit_ids[i], move_target)
 		AudioManager.play_ui_click()
 
 # =============================================================================

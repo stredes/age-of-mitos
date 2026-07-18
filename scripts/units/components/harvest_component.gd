@@ -76,6 +76,7 @@ func harvest(delta: float) -> void:
 		if actual > 0:
 			resource_gathered.emit(carry_resource_type, actual)
 			_spawn_harvest_particles()
+			_emit_carry_changed()
 
 		if is_full():
 			resource_full.emit(carry_resource_type, current_carry)
@@ -157,6 +158,7 @@ func start_gathering(resource_node: Node2D) -> void:
 		carry_resource_type = str(resource_node.get("resource_type"))
 	current_carry = 0
 	_gather_timer = 0.0
+	_emit_carry_changed()
 
 
 func return_resources() -> void:
@@ -178,6 +180,7 @@ func return_resources() -> void:
 
 	current_carry = 0
 	return_completed.emit()
+	_emit_carry_changed()
 
 
 func reset() -> void:
@@ -186,6 +189,7 @@ func reset() -> void:
 	target_resource = null
 	drop_off_building = null
 	carry_resource_type = ""
+	_emit_carry_changed()
 
 
 func _find_resource_nodes_recursive(node: Node, results: Array[Node], resource_type: String) -> void:
@@ -231,3 +235,8 @@ func _find_node_recursive(node: Node, target_name: String) -> Node:
 		if result != null:
 			return result
 	return null
+
+
+func _emit_carry_changed() -> void:
+	if _parent_unit != null and _parent_unit.has_signal("resource_carried_changed"):
+		_parent_unit.resource_carried_changed.emit(carry_resource_type, current_carry)

@@ -257,6 +257,84 @@ static func get_building_preview(building_type: String, player_id: int = 0, grid
 	return _texture_from_image(img)
 
 
+static func create_wood_bundle(size: Vector2i = Vector2i(16, 16)) -> Texture2D:
+	var img: Image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	img.fill(TRANSPARENT)
+	var wood: Color = Color(0.55, 0.35, 0.18)
+	var wood_dark: Color = Color(0.38, 0.22, 0.10)
+	var wood_light: Color = Color(0.68, 0.48, 0.28)
+	var cx: int = size.x / 2
+	var cy: int = size.y / 2 + 2
+	for i in range(4):
+		var x: int = cx - 6 + i * 4
+		_rect(img, Rect2i(x, cy - 8, 3, 10), wood)
+		_rect(img, Rect2i(x, cy - 8, 3, 10), wood_dark, false)
+		_rect(img, Rect2i(x + 1, cy - 7, 1, 4), wood_light)
+	_line(img, Vector2i(cx - 7, cy - 2), Vector2i(cx + 5, cy - 2), wood_dark, 1)
+	_line(img, Vector2i(cx - 7, cy + 2), Vector2i(cx + 5, cy + 2), wood_dark, 1)
+	return _texture_from_image(img)
+
+
+static func create_stone_sack(size: Vector2i = Vector2i(16, 16)) -> Texture2D:
+	var img: Image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	img.fill(TRANSPARENT)
+	var sack: Color = Color(0.46, 0.44, 0.40)
+	var sack_dark: Color = Color(0.32, 0.30, 0.28)
+	var sack_light: Color = Color(0.58, 0.56, 0.52)
+	var cx: int = size.x / 2
+	var cy: int = size.y / 2 + 1
+	_ellipse(img, Vector2i(cx, cy), Vector2i(6, 5), sack)
+	_ellipse(img, Vector2i(cx, cy), Vector2i(6, 5), sack_dark, false)
+	for x in range(cx - 4, cx + 5, 3):
+		_line(img, Vector2i(x, cy - 4), Vector2i(x, cy + 4), sack_light, 1)
+	_rect(img, Rect2i(cx - 3, cy - 7, 6, 3), sack_dark)
+	_ellipse(img, Vector2i(cx, cy - 6), Vector2i(3, 1), sack_dark)
+	return _texture_from_image(img)
+
+
+static func create_food_basket(size: Vector2i = Vector2i(16, 16)) -> Texture2D:
+	var img: Image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	img.fill(TRANSPARENT)
+	var basket: Color = Color(0.48, 0.30, 0.12)
+	var basket_dark: Color = Color(0.32, 0.18, 0.06)
+	var basket_light: Color = Color(0.62, 0.42, 0.18)
+	var apple: Color = Color(0.82, 0.22, 0.18)
+	var wheat: Color = Color(0.88, 0.78, 0.32)
+	var cx: int = size.x / 2
+	var cy: int = size.y / 2 + 1
+	_ellipse(img, Vector2i(cx, cy + 2), Vector2i(7, 5), basket)
+	_ellipse(img, Vector2i(cx, cy + 2), Vector2i(7, 5), basket_dark, false)
+	for x in range(cx - 6, cx + 7, 2):
+		_line(img, Vector2i(x, cy), Vector2i(x, cy + 6), basket_light, 1)
+	_rect(img, Rect2i(cx - 6, cy - 2, 12, 2), basket_dark)
+	_ellipse(img, Vector2i(cx - 2, cy - 4), Vector2i(3, 3), apple)
+	_ellipse(img, Vector2i(cx + 3, cy - 5), Vector2i(2, 2), wheat)
+	_ellipse(img, Vector2i(cx - 4, cy - 5), Vector2i(2, 2), wheat)
+	return _texture_from_image(img)
+
+
+static func create_gold_sack(size: Vector2i = Vector2i(16, 16)) -> Texture2D:
+	var img: Image = Image.create(size.x, size.y, false, Image.FORMAT_RGBA8)
+	img.fill(TRANSPARENT)
+	var sack: Color = Color(0.30, 0.24, 0.16)
+	var sack_dark: Color = Color(0.18, 0.14, 0.08)
+	var sack_light: Color = Color(0.42, 0.34, 0.22)
+	var gold: Color = Color(0.96, 0.80, 0.16)
+	var gold_dark: Color = Color(0.72, 0.58, 0.08)
+	var cx: int = size.x / 2
+	var cy: int = size.y / 2 + 1
+	_ellipse(img, Vector2i(cx, cy), Vector2i(6, 5), sack)
+	_ellipse(img, Vector2i(cx, cy), Vector2i(6, 5), sack_dark, false)
+	for x in range(cx - 4, cx + 5, 3):
+		_line(img, Vector2i(x, cy - 4), Vector2i(x, cy + 4), sack_light, 1)
+	_rect(img, Rect2i(cx - 3, cy - 7, 6, 3), sack_dark)
+	_ellipse(img, Vector2i(cx, cy - 6), Vector2i(3, 1), sack_dark)
+	_ellipse(img, Vector2i(cx, cy - 2), Vector2i(2, 2), gold)
+	_ellipse(img, Vector2i(cx + 3, cy - 4), Vector2i(2, 2), gold)
+	_ellipse(img, Vector2i(cx - 3, cy - 4), Vector2i(2, 2), gold_dark)
+	return _texture_from_image(img)
+
+
 static func _texture_from_image(img: Image) -> Texture2D:
 	return ImageTexture.create_from_image(img)
 
