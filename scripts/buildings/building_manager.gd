@@ -370,6 +370,29 @@ func on_building_destroyed(building_id: int, player_id: int, _destroyer_id: int)
 
 		building_removed.emit(building_id, player_id)
 
+	if not GameManager.is_playing():
+		return
+	if player_id == -1:
+		return
+	_check_player_elimination(player_id, _destroyer_id)
+
+
+func _check_player_elimination(eliminated_player: int, destroyer_id: int) -> void:
+	if get_player_building_count(eliminated_player) > 0:
+		return
+
+	var alive_players: Array[int] = []
+	for pid: int in GameManager.get_all_player_ids():
+		if pid == eliminated_player:
+			continue
+		if get_player_building_count(pid) > 0:
+			alive_players.append(pid)
+
+	if alive_players.size() == 1:
+		GameManager.end_game(alive_players[0])
+	elif alive_players.size() == 0:
+		GameManager.end_game(-1)
+
 # =============================================================================
 # Debug
 # =============================================================================

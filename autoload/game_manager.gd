@@ -45,6 +45,10 @@ signal game_state_changed(old_state: GameState, new_state: GameState)
 ## Emitted when a player's resource total changes.
 signal player_resource_changed(player_id: int, resource_type: String, new_amount: int)
 
+## Emitted when the game ends with a winner.
+## [param winner_id: int] The winning player's ID (-1 for draw).
+signal game_ended(winner_id: int)
+
 # =============================================================================
 # Properties
 # =============================================================================
@@ -74,6 +78,9 @@ var local_player_id: int = 1
 ## Whether the game has been initialized.
 var is_initialized: bool = false
 
+## The winning player's ID when the game ends (-1 for draw, -2 for not ended).
+var winner_id: int = -2
+
 # =============================================================================
 # Lifecycle
 # =============================================================================
@@ -102,6 +109,7 @@ func start_game(num_players: int = 2, num_ai: int = 1) -> void:
 	game_speed = 1.0
 	speed_index = 1
 	Engine.time_scale = 1.0
+	winner_id = -2
 	is_initialized = true
 	_change_state(GameState.PLAYING)
 	EventBus.game_started.emit(local_player_id)
@@ -129,8 +137,13 @@ func resume_game() -> void:
 ## End the game and transition to GAME_OVER.
 ## [param winner_id: int] The player ID of the winner (-1 for draw).
 func end_game(winner_id: int = -1) -> void:
+	if current_state == GameState.GAME_OVER:
+		return
+	self.winner_id = winner_id
 	_change_state(GameState.GAME_OVER)
 	set_physics_process(false)
+	game_ended.emit(winner_id)
+	EventBus.game_over.emit(winner_id, game_time)
 
 
 ## Return to the main menu.

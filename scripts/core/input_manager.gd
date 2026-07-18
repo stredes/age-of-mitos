@@ -56,6 +56,14 @@ var has_build_mode: bool = false
 ## The building type being placed in build mode.
 var build_mode_type: String = ""
 
+## Whether attack-move mode is active (A key pressed, awaiting target).
+var has_attack_move_mode: bool = false
+
+## Whether patrol mode is active (P key pressed, awaiting 2 clicks).
+var has_patrol_mode: bool = false
+var _patrol_click_count: int = 0
+var _patrol_point_a: Vector2 = Vector2.ZERO
+
 ## Reference to the Camera2D used for coordinate conversion.
 var _camera: Camera2D = null
 
@@ -207,12 +215,24 @@ func _handle_key(event: InputEventKey) -> void:
 		KEY_ESCAPE:
 			if has_build_mode:
 				cancel_build_mode()
+			elif has_attack_move_mode:
+				cancel_attack_move_mode()
+			elif has_patrol_mode:
+				cancel_patrol_mode()
 			else:
 				deselect_all()
 		KEY_B:
 			EventBus.button_pressed.emit("build_menu", GameManager.get_local_player_id())
+		KEY_A:
+			if not has_build_mode:
+				enter_attack_move_mode()
+		KEY_P:
+			if not has_build_mode:
+				enter_patrol_mode()
 		KEY_S:
 			EventBus.button_pressed.emit("stop_command", GameManager.get_local_player_id())
+		KEY_H:
+			_issue_hold_position()
 		KEY_W:
 			EventBus.button_pressed.emit("gather_wood", GameManager.get_local_player_id())
 		KEY_F:
@@ -225,12 +245,14 @@ func _handle_key(event: InputEventKey) -> void:
 			EventBus.button_pressed.emit("train_villager", GameManager.get_local_player_id())
 		KEY_Z:
 			EventBus.button_pressed.emit("train_swordsman", GameManager.get_local_player_id())
-		KEY_P:
+		KEY_X:
 			EventBus.button_pressed.emit("train_spearman", GameManager.get_local_player_id())
 		KEY_R:
 			EventBus.button_pressed.emit("train_archer", GameManager.get_local_player_id())
 		KEY_C:
 			EventBus.button_pressed.emit("train_cavalry", GameManager.get_local_player_id())
+		KEY_SPACE:
+			_recenter_camera_on_army()
 
 # =============================================================================
 # Release Processing
@@ -263,6 +285,7 @@ func _process_release(release_screen_pos: Vector2) -> void:
 func _handle_click(screen_pos: Vector2) -> void:
 	var world_pos: Vector2 = _screen_to_world(screen_pos)
 	EventBus.button_pressed.emit("click", GameManager.get_local_player_id())
+	_spawn_click_feedback(screen_pos)
 
 	var selection_manager: Node = _find_selection_manager()
 	var shift_held: bool = Input.is_key_pressed(KEY_SHIFT)
@@ -277,6 +300,15 @@ func _handle_click(screen_pos: Vector2) -> void:
 func _handle_right_click(world_pos: Vector2) -> void:
 	if has_build_mode:
 		cancel_build_mode()
+		return
+
+	if has_attack_move_mode and selected_unit_ids.size() > 0:
+		_issue_attack_move(world_pos)
+		cancel_attack_move_mode()
+		return
+
+	if has_patrol_mode and selected_unit_ids.size() > 0:
+		_handle_patrol_click(world_pos)
 		return
 
 	if selected_unit_ids.size() > 0:
@@ -295,6 +327,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 				var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
 				if state_machine != null and state_machine.has_method("change_state"):
 					state_machine.change_state("HarvestState")
+			EventBus.move_order_feedback.emit(target_resource.global_position)
 		elif units.size() > 0:
 			if formation_manager and formation_manager.has_method("apply_formation_to_units"):
 				var center_pos: Vector2 = Vector2.ZERO
@@ -313,6 +346,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 					if state_machine != null and state_machine.has_method("change_state"):
 						state_machine.change_state("MoveState")
 					EventBus.unit_moved.emit(selected_unit_ids[i], move_target)
+			EventBus.move_order_feedback.emit(world_pos)
 		AudioManager.play_ui_click()
 
 # =============================================================================
@@ -375,6 +409,105 @@ func cancel_build_mode() -> void:
 	has_build_mode = false
 	build_mode_type = ""
 	EventBus.menu_closed.emit("build_mode")
+
+
+## Enter attack-move mode — next right-click issues attack-move command.
+func enter_attack_move_mode() -> void:
+	has_attack_move_mode = true
+	AudioManager.play_ui_click()
+
+
+## Cancel attack-move mode without issuing a command.
+func cancel_attack_move_mode() -> void:
+	has_attack_move_mode = false
+
+
+## Issue attack-move command to all selected units toward world_pos.
+func _issue_attack_move(world_pos: Vector2) -> void:
+	for uid: int in selected_unit_ids:
+		var unit: Node2D = _find_unit_by_id(uid)
+		if unit == null:
+			continue
+		unit.set("pending_attack_move_position", world_pos)
+		unit.set("pending_move_position", Vector2.ZERO)
+		unit.set("pending_target_resource", null)
+		unit.set("pending_target_building", null)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("AttackMoveState")
+	EventBus.move_order_feedback.emit(world_pos)
+	AudioManager.play_ui_click()
+
+
+## Enter patrol mode — next two right-clicks set patrol waypoints.
+func enter_patrol_mode() -> void:
+	has_patrol_mode = true
+	_patrol_click_count = 0
+	_patrol_point_a = Vector2.ZERO
+	AudioManager.play_ui_click()
+
+
+## Cancel patrol mode without issuing a command.
+func cancel_patrol_mode() -> void:
+	has_patrol_mode = false
+	_patrol_click_count = 0
+	_patrol_point_a = Vector2.ZERO
+
+
+## Handle a click during patrol mode.
+func _handle_patrol_click(world_pos: Vector2) -> void:
+	if _patrol_click_count == 0:
+		var unit: Node2D = _find_unit_by_id(selected_unit_ids[0])
+		if unit != null:
+			_patrol_point_a = unit.global_position
+		else:
+			_patrol_point_a = world_pos
+		_patrol_click_count = 1
+		AudioManager.play_ui_click()
+	else:
+		var point_b: Vector2 = world_pos
+		_issue_patrol(point_b)
+		cancel_patrol_mode()
+
+
+## Issue patrol command to all selected units.
+func _issue_patrol(point_b: Vector2) -> void:
+	for uid: int in selected_unit_ids:
+		var unit: Node2D = _find_unit_by_id(uid)
+		if unit == null:
+			continue
+		var a: Vector2 = _patrol_point_a
+		var unit_pos: Vector2 = unit.global_position
+		if a.distance_squared_to(unit_pos) > 16.0:
+			a = unit_pos
+		unit.set("pending_patrol_points", {"a": a, "b": point_b})
+		unit.set("pending_move_position", Vector2.ZERO)
+		unit.set("pending_attack_move_position", Vector2.ZERO)
+		unit.set("pending_target_resource", null)
+		unit.set("pending_target_building", null)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("PatrolState")
+	EventBus.move_order_feedback.emit(point_b)
+	AudioManager.play_ui_click()
+
+
+## Issue hold position command to all selected units.
+func _issue_hold_position() -> void:
+	for uid: int in selected_unit_ids:
+		var unit: Node2D = _find_unit_by_id(uid)
+		if unit == null:
+			continue
+		unit.set("pending_hold_position", true)
+		unit.set("pending_move_position", Vector2.ZERO)
+		unit.set("pending_attack_move_position", Vector2.ZERO)
+		unit.set("pending_patrol_points", {})
+		unit.set("pending_target_resource", null)
+		unit.set("pending_target_building", null)
+		var state_machine: Node = unit.get_node_or_null("UnitStateMachine")
+		if state_machine != null and state_machine.has_method("change_state"):
+			state_machine.change_state("HoldPositionState")
+	AudioManager.play_ui_click()
 
 
 ## Generate a unique building ID. In production, delegate to a world entity manager.
@@ -637,3 +770,14 @@ func get_selection_rect_world() -> Rect2:
 		Vector2(minf(start_world.x, end_world.x), minf(start_world.y, end_world.y)),
 		Vector2(absf(end_world.x - start_world.x), absf(end_world.y - start_world.y))
 	)
+
+
+func _spawn_click_feedback(screen_pos: Vector2) -> void:
+	if _camera != null and _camera.has_method("spawn_touch_effect"):
+		var world_pos: Vector2 = _screen_to_world(screen_pos)
+		_camera.spawn_touch_effect(world_pos)
+
+
+func _recenter_camera_on_army() -> void:
+	if _camera != null and _camera.has_method("recenter_on_army"):
+		_camera.recenter_on_army()

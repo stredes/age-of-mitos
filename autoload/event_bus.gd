@@ -48,6 +48,10 @@ signal unit_deselected(unit_id: int, player_id: int)
 ## [param target_position: Vector2] The destination in world coordinates.
 signal unit_moved(unit_id: int, target_position: Vector2)
 
+## Emitted when the player issues a move/gather command to show visual feedback.
+## [param target_position: Vector2] The destination in world coordinates.
+signal move_order_feedback(target_position: Vector2)
+
 ## Emitted when a unit initiates an attack.
 ## [param attacker_id: int] The attacking unit.
 ## [param target_id: int] The target being attacked.
@@ -155,6 +159,11 @@ signal game_saved(save_name: String)
 ## [param save_name: String] The name of the loaded save file.
 signal game_loaded(save_name: String)
 
+## Emitted when the game ends.
+## [param winner_id: int] The winning player's ID (-1 for draw).
+## [param elapsed_time: float] Total game time in seconds.
+signal game_over(winner_id: int, elapsed_time: float)
+
 # =============================================================================
 # Combat Signals
 # =============================================================================
@@ -201,6 +210,11 @@ signal villager_unassigned(villager_id: int, previous_target_id: int)
 ## [param resource_type: String] The resource being dropped off.
 ## [param amount: int] The amount dropped off.
 signal resource_drop_off(villager_id: int, drop_off_id: int, resource_type: String, amount: int)
+
+## Emitted when a unit's movement should produce walking dust particles.
+## [param position: Vector2] World position of the unit.
+## [param direction: Vector2] Normalized movement direction.
+signal walking_dust_requested(position: Vector2, direction: Vector2)
 
 # =============================================================================
 # Construction Signals

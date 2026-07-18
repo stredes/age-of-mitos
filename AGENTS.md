@@ -9,14 +9,15 @@ Real-time strategy game inspired by ancient civilizations. Built with Godot 4.4.
 - Left click/tap uses `SelectionManager` to select local units/buildings; drag selection selects local units in a rectangle.
 - Selected units show their selection ring via `UnitBase.is_selected` and `SelectionComponent`.
 - Right click sends selected units to move using a basic square formation target layout; right clicking a harvestable `ResourceNode` sends villagers into `HarvestState`.
+- A key enters attack-move mode: right-click sends units to move toward a point, attacking any enemies encountered along the way.
 - Build menu placement creates real `BuildingManager` buildings, spends resources, marks the grid, and starts progressive construction.
 - Buildings under construction advance over build time, show a progress bar/ring, emit construction particles, update construction animation frames, and play completion feedback before becoming active.
 - Selected buildings show a pulsing selection ring and construction progress if unfinished.
 - Building production now advances every frame, uses unit `train_time`, spends unit costs from `SelectionPanel`, and spawns completed units near the source building.
 - Command buttons now route through `GameWorld`: Stop halts selected units, Build opens the build menu, gather buttons assign selected villagers, and `train_*` commands queue units from the selected building with central cost handling.
-- Command panel buttons show hotkeys/tooltips and pressed feedback; keyboard hotkeys include B build, S stop, W/F/T/G gather resources, and V/Z/P/R/C for common unit training.
+- Command panel buttons show hotkeys/tooltips and pressed feedback; keyboard hotkeys include A attack-move, B build, S stop, H hold position, W/F/T/G gather resources, and V/Z/P/R/C for common unit training.
 - MovementComponent has acceleration, deceleration, turn smoothing, terrain speed, obstacle slowdown, and walking dust.
-- Camera supports smooth zoom, inertia, edge scrolling, arrow-key panning, and screen shake. WASD is reserved for command hotkeys, not camera movement.
+- Camera supports smooth zoom, inertia, edge scrolling, arrow-key panning, screen shake, touch circle feedback on tap, green arrow move-order feedback, and Space to re-center on army. WASD is reserved for command hotkeys, not camera movement.
 - Audio buses Music/SFX/Ambience are created at runtime if missing, so validation/export no longer emits audio bus warnings.
 - Pathfinder uses `AStarGrid2D.region` for Godot 4.4 instead of deprecated `size`.
 - Latest exported debug APK: `build/age_of_mitos_v0.1.1.apk`, copied to `C:\Users\bodega 1\Desktop\age_of_mitos_v0.1.1.apk` on 2026-07-15.
@@ -135,7 +136,7 @@ main_menu.tscn → (New Game button) → game_world.tscn
 
 **Components:** `health_component.gd`, `movement_component.gd`, `selection_component.gd`, `combat_component.gd`, `harvest_component.gd`
 
-**States (all extend UnitState):** Idle, Move, Attack, Build, Harvest, Dead
+**States (all extend UnitState):** Idle, Move, Attack, AttackMove, Patrol, HoldPosition, Build, Harvest, Dead, Celebrate, Hurt
 
 **Note:** `UnitManager` uses `scenes/units/unit.tscn`; fallback creation is still available for safety.
 
@@ -190,6 +191,9 @@ var size = Vector2i(raw_size.get("x", 1), raw_size.get("y", 1))
 | `zoom_out` | Mouse wheel down |
 | `build` | B key |
 | `cancel` | Escape |
+| `recenter_army` | Space |
+| `attack_move` | A key (then right-click target) |
+| `hold_position` | H key (unit stays in place and defends itself) |
 
 ## Known Bugs (Fixed in v0.1.1)
 1. **Signal timing:** `GameManager.start_game()` was called from menu BEFORE scene change → `EventBus.game_started` emitted with zero listeners → ResourceManager never initialized. Fix: removed early call, let `_initialize_world()` handle it.
@@ -244,7 +248,7 @@ age_of_mitos/
 │   ├── selection/ (1)
 │   ├── technology/ (1)
 │   ├── ui/ (6)
-│   ├── units/ (3 + 5 components + 7 states)
+│   ├── units/ (3 + 5 components + 9 states)
 │   └── world/ (5)
 ├── build/                     # Exported APK
 ├── tools/                     # Godot exe + Android SDK

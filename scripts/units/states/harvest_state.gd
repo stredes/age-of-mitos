@@ -80,6 +80,7 @@ func update(delta: float) -> void:
 
 			if resource_node.has_method("get_current_amount"):
 				if resource_node.get_current_amount() <= 0:
+					harvest_comp.reset()
 					_switch_to_return(harvest_comp)
 					return
 
@@ -95,6 +96,7 @@ func update(delta: float) -> void:
 			harvest_comp.return_resources()
 			harvest_comp.reset()
 
+			var res_depleted: bool = true
 			if resource_node != null and is_instance_valid(resource_node):
 				var res_amount: int = 0
 				if resource_node.has_method("get_current_amount"):
@@ -102,13 +104,26 @@ func update(delta: float) -> void:
 				elif resource_node.get("current_amount") != null:
 					res_amount = int(resource_node.get("current_amount"))
 				if res_amount > 0:
-					phase = Phase.GO_TO_RESOURCE
-					harvest_comp.start_gathering(resource_node)
-					_move_to_resource()
-				else:
-					state_machine.change_state("IdleState")
-			else:
+					res_depleted = false
+
+			if res_depleted:
+				var old_resource_type: String = ""
+				if resource_node != null and is_instance_valid(resource_node):
+					old_resource_type = resource_node.get("resource_type", "")
+				resource_node = null
+				if old_resource_type != "":
+					var new_resource = harvest_comp.find_nearest_resource(old_resource_type)
+					if new_resource != null:
+						resource_node = new_resource
+						phase = Phase.GO_TO_RESOURCE
+						harvest_comp.start_gathering(resource_node)
+						_move_to_resource()
+						return
 				state_machine.change_state("IdleState")
+			else:
+				phase = Phase.GO_TO_RESOURCE
+				harvest_comp.start_gathering(resource_node)
+				_move_to_resource()
 
 
 func exit() -> void:

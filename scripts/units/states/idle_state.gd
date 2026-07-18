@@ -74,6 +74,20 @@ func _check_pending_commands() -> void:
 		state_machine.change_state("BuildState")
 		return
 
+	var patrol_pts: Dictionary = unit.get("pending_patrol_points") if unit.has_method("get") else {}
+	if not patrol_pts.is_empty():
+		state_machine.change_state("PatrolState")
+		return
+
+	if unit.get("pending_attack_move_position") != null and unit.pending_attack_move_position != Vector2.ZERO:
+		state_machine.change_state("AttackMoveState")
+		return
+
+	if unit.get("pending_hold_position") == true:
+		unit.pending_hold_position = false
+		state_machine.change_state("HoldPositionState")
+		return
+
 	if unit.pending_move_position != Vector2.ZERO:
 		state_machine.change_state("MoveState")
 		return

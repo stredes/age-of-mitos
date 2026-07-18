@@ -1,10 +1,8 @@
 extends Control
 
-const ProceduralSpriteFactory = preload("res://scripts/animation/procedural_sprite_factory.gd")
-
 var _is_showing: bool = false
 var _main_vbox: VBoxContainer = null
-var _portrait_area: PanelContainer = null
+var _portrait_area: SelectionPortrait = null
 var _name_label: Label = null
 var _hp_bar: ProgressBar = null
 var _hp_label: Label = null
@@ -563,41 +561,15 @@ func _format_cost_short(cost: Dictionary) -> String:
 
 func _add_procedural_portrait(unit_type: String) -> void:
 	if not _portrait_area:
-		_portrait_area = PanelContainer.new()
+		_portrait_area = SelectionPortrait.new()
 		_portrait_area.name = "PortraitArea"
-		_portrait_area.custom_minimum_size = Vector2(64, 64)
-		_portrait_area.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		var panel_style: StyleBoxFlat = StyleBoxFlat.new()
-		panel_style.bg_color = Color(0.08, 0.08, 0.12, 0.9)
-		panel_style.border_color = Color(0.3, 0.4, 0.5, 0.6)
-		panel_style.border_width_bottom = 1
-		panel_style.border_width_top = 1
-		panel_style.border_width_left = 1
-		panel_style.border_width_right = 1
-		panel_style.corner_radius_top_left = 4
-		panel_style.corner_radius_top_right = 4
-		panel_style.corner_radius_bottom_left = 4
-		panel_style.corner_radius_bottom_right = 4
-		_portrait_area.add_theme_stylebox_override("panel", panel_style)
 		_main_vbox.add_child_at_index(_portrait_area, 1)
 
-	# Clear existing portrait
-	for child: Node in _portrait_area.get_children():
-		child.queue_free()
-
 	if unit_type.is_empty():
+		_portrait_area.clear_portrait()
 		return
 
-	var texture: Texture2D = ProceduralSpriteFactory.get_unit_preview(unit_type, GameManager.local_player_id)
-	if texture:
-		var tex_rect: TextureRect = TextureRect.new()
-		tex_rect.texture = texture
-		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		tex_rect.custom_minimum_size = Vector2(48, 48)
-		tex_rect.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		tex_rect.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_portrait_area.add_child(tex_rect)
+	_portrait_area.set_portrait(unit_type, GameManager.local_player_id)
 
 
 func _on_unit_died(unit_id: int, _killer_id: int, player_id: int) -> void:

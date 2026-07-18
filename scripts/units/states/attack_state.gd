@@ -41,7 +41,10 @@ func update(delta: float) -> void:
 	var health: Node = target_node.get_node_or_null("HealthComponent")
 	if health != null and not health.is_alive:
 		target_node = null
-		state_machine.change_state("IdleState")
+		if state_machine.has_state("CelebrateState"):
+			state_machine.change_state("CelebrateState")
+		else:
+			state_machine.change_state("IdleState")
 		return
 
 	var combat: Node = unit.get_node_or_null("CombatComponent")

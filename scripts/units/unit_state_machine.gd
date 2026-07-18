@@ -20,11 +20,33 @@ func _register_states() -> void:
 			child.unit = unit
 			child.state_machine = self
 
+	if unit != null and unit.has_signal("damaged"):
+		unit.damaged.connect(_on_unit_damaged)
+
 	if states.is_empty():
 		return
 
 	var first_state: String = states.keys()[0]
 	_change_state(first_state)
+
+
+func _on_unit_damaged(damage_amount: int, _attacker_id: int) -> void:
+	if current_state != null and current_state.name == "HurtState":
+		return
+	if not states.has("HurtState"):
+		return
+	var health_comp: Node = unit.get_node_or_null("HealthComponent")
+	if health_comp == null:
+		return
+	var max_hp: int = health_comp.get("max_hp") if health_comp.get("max_hp") != null else 1
+	if float(damage_amount) > float(max_hp) * HurtState.HEAVY_HIT_THRESHOLD:
+		trigger_hurt()
+
+
+func trigger_hurt() -> void:
+	if current_state != null and current_state.has_method("get") and current_state.get("previous_state_name") != null:
+		current_state.previous_state_name = current_state.name
+	change_state("HurtState")
 
 
 func _process(delta: float) -> void:

@@ -19,6 +19,9 @@ var facing: Vector2 = Vector2.RIGHT
 var pending_target_resource: Node2D = null
 var pending_target_building: Node2D = null
 var pending_move_position: Vector2 = Vector2.ZERO
+var pending_attack_move_position: Vector2 = Vector2.ZERO
+var pending_patrol_points: Dictionary = {}
+var pending_hold_position: bool = false
 var preferred_resource: String = ""
 var build_rate: int = 10
 

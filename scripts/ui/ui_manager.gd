@@ -7,6 +7,7 @@ var train_menu: Control = null
 var selection_panel: Control = null
 var _pause_menu: Control = null
 var _game_over_panel: Control = null
+var _game_over_screen: GameOverScreen = null
 var _open_menu: String = ""
 
 
@@ -63,6 +64,8 @@ func _connect_signals() -> void:
 		EventBus.building_completed.connect(_on_building_completed)
 	if not EventBus.construction_progress.is_connected(_on_construction_progress):
 		EventBus.construction_progress.connect(_on_construction_progress)
+	if not EventBus.game_over.is_connected(_on_game_over):
+		EventBus.game_over.connect(_on_game_over)
 
 
 func open_build_menu() -> void:
@@ -93,57 +96,14 @@ func close_train_menu() -> void:
 	_open_menu = ""
 
 
-func show_game_over(winner_id: int) -> void:
+func show_game_over(winner_id: int, elapsed_time: float) -> void:
 	if _game_over_panel and is_instance_valid(_game_over_panel):
 		_game_over_panel.queue_free()
 
-	_game_over_panel = Control.new()
-	_game_over_panel.name = "GameOverPanel"
-	_game_over_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-
-	var bg: ColorRect = ColorRect.new()
-	bg.color = Color(0.0, 0.0, 0.0, 0.7)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_game_over_panel.add_child(bg)
-
-	var center: CenterContainer = CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_game_over_panel.add_child(center)
-
-	var vbox: VBoxContainer = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 16)
-	center.add_child(vbox)
-
-	var title: Label = Label.new()
-	if winner_id == GameManager.local_player_id:
-		title.text = "VICTORY!"
-		title.add_theme_color_override("font_color", Color(0.2, 0.9, 0.2))
-	elif winner_id == -1:
-		title.text = "DRAW"
-		title.add_theme_color_override("font_color", Color(0.8, 0.8, 0.3))
-	else:
-		title.text = "DEFEAT"
-		title.add_theme_color_override("font_color", Color(0.9, 0.2, 0.2))
-	title.add_theme_font_size_override("font_size", 36)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(title)
-
-	var subtitle: Label = Label.new()
-	subtitle.text = "Game Over"
-	subtitle.add_theme_font_size_override("font_size", 18)
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(subtitle)
-
-	var btn_container: HBoxContainer = HBoxContainer.new()
-	btn_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_container.add_theme_constant_override("separation", 16)
-	vbox.add_child(btn_container)
-
-	var menu_btn: Button = Button.new()
-	menu_btn.text = "Main Menu"
-	menu_btn.custom_minimum_size = Vector2(120, 48)
-	menu_btn.pressed.connect(func() -> void: GameManager.return_to_menu())
-	btn_container.add_child(menu_btn)
+	_game_over_screen = GameOverScreen.new()
+	_game_over_screen.name = "GameOverPanel"
+	_game_over_screen.setup(winner_id, elapsed_time)
+	_game_over_panel = _game_over_screen
 
 	get_tree().current_scene.add_child(_game_over_panel)
 
@@ -331,6 +291,10 @@ func _on_construction_progress(_building_id: int, _current_hp: int, _total_hp: i
 	if _total_hp > 0 and hud and hud.has_method("update_construction_bar"):
 		var progress: float = float(_current_hp) / float(_total_hp)
 		hud.update_construction_bar(_building_id, progress)
+
+
+func _on_game_over(winner_id: int, elapsed_time: float) -> void:
+	show_game_over(winner_id, elapsed_time)
 
 
 func _find_unit_by_id(unit_id: int) -> Node:

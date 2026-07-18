@@ -152,6 +152,8 @@ func _record_command(command: UnitCommand, recipients: Array[UnitBase]) -> void:
 		_command_history.pop_front()
 
 func clear_unit_commands(unit: UnitBase) -> void:
+	if not is_instance_valid(unit):
+		return
 	var unit_id = unit.get_instance_id()
 	if _command_queues.has(unit_id):
 		_command_queues[unit_id].clear()
@@ -159,7 +161,8 @@ func clear_unit_commands(unit: UnitBase) -> void:
 
 func clear_selected_commands() -> void:
 	for unit in _selected_units:
-		clear_unit_commands(unit)
+		if is_instance_valid(unit):
+			clear_unit_commands(unit)
 
 func clear_all_commands() -> void:
 	for unit_id in _command_queues:
@@ -168,6 +171,8 @@ func clear_all_commands() -> void:
 	_all_commands_cleared.emit()
 
 func get_unit_queue(unit: UnitBase) -> Array[UnitCommand]:
+	if not is_instance_valid(unit):
+		return []
 	var unit_id = unit.get_instance_id()
 	return _command_queues.get(unit_id, []).duplicate()
 
@@ -191,6 +196,8 @@ func has_queued_commands(unit: UnitBase) -> bool:
 	return get_unit_queue(unit).size() > 1
 
 func remove_command_at_index(unit: UnitBase, index: int) -> bool:
+	if not is_instance_valid(unit):
+		return false
 	var unit_id = unit.get_instance_id()
 	if not _command_queues.has(unit_id) or index < 0 or index >= _command_queues[unit_id].size():
 		return false
@@ -203,6 +210,8 @@ func remove_command_at_index(unit: UnitBase, index: int) -> bool:
 	return true
 
 func move_command_up(unit: UnitBase, index: int) -> bool:
+	if not is_instance_valid(unit):
+		return false
 	var unit_id = unit.get_instance_id()
 	if not _command_queues.has(unit_id) or index <= 0 or index >= _command_queues[unit_id].size():
 		return false
@@ -214,6 +223,8 @@ func move_command_up(unit: UnitBase, index: int) -> bool:
 	return true
 
 func move_command_down(unit: UnitBase, index: int) -> bool:
+	if not is_instance_valid(unit):
+		return false
 	var unit_id = unit.get_instance_id()
 	if not _command_queues.has(unit_id) or index < 0 or index >= _command_queues[unit_id].size() - 1:
 		return false
@@ -230,6 +241,8 @@ func on_unit_removed(unit: UnitBase) -> void:
 		_command_queues.erase(unit_id)
 
 func get_queued_count(unit: UnitBase) -> int:
+	if not is_instance_valid(unit):
+		return 0
 	return max(0, get_unit_queue(unit).size() - 1)
 
 func get_total_command_count() -> int:

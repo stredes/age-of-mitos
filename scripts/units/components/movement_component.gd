@@ -131,8 +131,10 @@ func _stop_movement() -> void:
 	owner.velocity = Vector2.ZERO
 
 func _emit_walking_dust(delta: float) -> void:
+	if owner == null or not is_instance_valid(owner):
+		return
 	if current_velocity.length() > 10.0 and randf() < 0.1:
-		EventBus.emit_walking_dust(owner.global_position, current_velocity.normalized())
+		EventBus.walking_dust_requested.emit(owner.global_position, current_velocity.normalized())
 
 func _on_movement_started(target: Vector2) -> void:
 	pass

@@ -78,9 +78,7 @@ func _check_arrival(move_comp: Node) -> void:
 		state_machine.change_state("IdleState")
 		return
 
-	var current_index: int = move_comp.current_path_index
-	var path_size: int = move_comp.path.size()
-	if current_index >= path_size and not move_comp.is_moving:
+	if not move_comp.is_moving:
 		state_machine.change_state("IdleState")
 
 
