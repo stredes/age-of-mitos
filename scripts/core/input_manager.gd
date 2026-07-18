@@ -286,6 +286,7 @@ func _handle_click(screen_pos: Vector2) -> void:
 	var world_pos: Vector2 = _screen_to_world(screen_pos)
 	EventBus.button_pressed.emit("click", GameManager.get_local_player_id())
 	_spawn_click_feedback(screen_pos)
+	SFXManager.play_select()
 
 	var selection_manager: Node = _find_selection_manager()
 	var shift_held: bool = Input.is_key_pressed(KEY_SHIFT)
@@ -328,6 +329,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 				if state_machine != null and state_machine.has_method("change_state"):
 					state_machine.change_state("HarvestState")
 			EventBus.move_order_feedback.emit(target_resource.global_position)
+			SFXManager.play_harvest()
 		elif units.size() > 0:
 			if formation_manager and formation_manager.has_method("apply_formation_to_units"):
 				var center_pos: Vector2 = Vector2.ZERO
@@ -347,6 +349,7 @@ func _handle_right_click(world_pos: Vector2) -> void:
 						state_machine.change_state("MoveState")
 					EventBus.unit_moved.emit(selected_unit_ids[i], move_target)
 			EventBus.move_order_feedback.emit(world_pos)
+		SFXManager.play_move()
 		AudioManager.play_ui_click()
 
 # =============================================================================

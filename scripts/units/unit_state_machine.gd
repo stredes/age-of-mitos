@@ -44,8 +44,10 @@ func _on_unit_damaged(damage_amount: int, _attacker_id: int) -> void:
 
 
 func trigger_hurt() -> void:
-	if current_state != null and current_state.has_method("get") and current_state.get("previous_state_name") != null:
-		current_state.previous_state_name = current_state.name
+	if current_state != null and states.has("HurtState"):
+		var hurt: Node = states["HurtState"]
+		if hurt.has_method("get") and hurt.get("previous_state_name") != null:
+			hurt.previous_state_name = current_state.name
 	change_state("HurtState")
 
 

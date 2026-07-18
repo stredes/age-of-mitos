@@ -53,17 +53,23 @@ func _ready() -> void:
 func _connect_damage_signals() -> void:
 	if _entity == null:
 		return
+
+	# Units: connect to UnitBase.damaged(amount, attacker_id) for hit flash
 	if _entity.has_signal("damaged"):
 		if not _entity.damaged.is_connected(_on_damaged):
 			_entity.damaged.connect(_on_damaged)
-	if _entity.has_signal("died"):
-		if not _entity.died.is_connected(_on_died):
-			_entity.died.connect(_on_died)
 
-	# Buildings use EventBus signals — connect to them for buildings
+	# Units: listen to EventBus.unit_died for death animation
+	if _entity.has("unit_id") and _entity.unit_id != -1:
+		if not EventBus.unit_died.is_connected(_on_unit_died_event):
+			EventBus.unit_died.connect(_on_unit_died_event)
+
+	# Buildings: use EventBus signals for both damage and death
 	if _entity is BuildingBase:
 		if not EventBus.building_damaged.is_connected(_on_building_damaged_event):
 			EventBus.building_damaged.connect(_on_building_damaged_event)
+		if not EventBus.building_destroyed.is_connected(_on_building_destroyed_event):
+			EventBus.building_destroyed.connect(_on_building_destroyed_event)
 
 # =============================================================================
 # Hit Flash
@@ -124,8 +130,9 @@ func trigger_death_animation() -> void:
 
 
 func _finish_death() -> void:
-	if _entity != null and is_instance_valid(_entity):
-		_entity.queue_free()
+	pass
+	# Do NOT queue_free here — DeadState (units) or BuildingBase._destroy()
+	# handles actual removal. CombatFeedback only does visual effects.
 
 # =============================================================================
 # Particle Spawning
@@ -151,13 +158,23 @@ func _on_damaged(_amount: int, _attacker_id: int) -> void:
 	trigger_hit_flash()
 
 
-func _on_died(_unit_id: int, _killer_id: int, _player_id: int) -> void:
+func _on_died(_attacker_id: int) -> void:
 	trigger_death_animation()
+
+
+func _on_unit_died_event(unit_id: int, _killer_id: int, _player_id: int) -> void:
+	if _entity != null and _entity.get("unit_id") != null and int(_entity.unit_id) == unit_id:
+		trigger_death_animation()
 
 
 func _on_building_damaged_event(building_id: int, _damage: int, _attacker_id: int) -> void:
 	if _entity is BuildingBase and _entity.building_id == building_id:
 		trigger_hit_flash()
+
+
+func _on_building_destroyed_event(building_id: int, _player_id: int, _destroyer_id: int) -> void:
+	if _entity is BuildingBase and _entity.building_id == building_id:
+		trigger_death_animation()
 
 # =============================================================================
 # Node Discovery
